@@ -24,7 +24,7 @@ MAX_PROMPT_WORDS = 12
 # Archetypes where a visual difference between right and wrong stones IS the
 # question (mushrooms look like mushrooms; a pentagon looks like a pentagon).
 # (a thistle must LOOK like a thistle; a pentagon must LOOK like a pentagon)
-VISUAL_BY_DESIGN = {"shape_door"}
+VISUAL_BY_DESIGN = {"shape_id_pick"}
 
 failures: list[str] = []
 checks = 0
@@ -53,9 +53,16 @@ def right_answer(ch):
 
 
 def right_typed(ch):
-    """What a child would TYPE for a free-response challenge."""
+    """What a child would TYPE for a free-response challenge.
+
+    Fraction answers are typed as fractions. `answer_text` is the canonical
+    written form ("1 1/3"); the improper form ("4/3") grades identically and
+    is checked separately below.
+    """
     if ch.get("grade_mode") != "value":
         return None
+    if ch.get("answer_text"):
+        return ch["answer_text"]
     places = int(ch.get("decimals") or 0)
     return f"{float(ch['answer_value']):.{places}f}"
 
@@ -219,24 +226,36 @@ for topic in math_engine.TOPICS:
         mechanics = {story_engine.MECHANIC_OF.get(a) for a in arche_list}
         check(None not in mechanics,
               f"{topic}/{band}: an archetype has no MECHANIC_OF entry: {arche_list}")
-        check(len(mechanics) >= 2,
-              f"{topic}/{band}: only one mechanic available ({mechanics})")
-        check(mechanics - {"pick"}, f"{topic}/{band}: only PICK-ONE mechanics available")
         # Ages 4-6 must still have two playable archetypes after the
         # no-reading filter, not just two on paper.
         playable = math_engine.playable_archetypes(topic, band)
         check(len(playable) >= 2,
               f"{topic}/{band}: only {len(playable)} PLAYABLE archetype(s)")
-        check(len({story_engine.MECHANIC_OF.get(a) for a in playable}) >= 2,
-              f"{topic}/{band}: playable archetypes are all one mechanic")
+        # 2026-09-19b: the old assertion here was "at least two MECHANICS".
+        # After the cull there are only two presentations left by design -
+        # multiple choice and free response - so that assertion could not be
+        # satisfied without bringing a gimmick back. It is replaced by the
+        # stronger, more specific pair below, which says what actually has to
+        # be true rather than counting mechanic names.
+        picks = [a for a in playable if a not in math_engine.FREE_RESPONSE_ARCHETYPES]
+        types = [a for a in arche_list if a in math_engine.FREE_RESPONSE_ARCHETYPES]
+        check(len(picks) >= 2,
+              f"{topic}/{band}: fewer than two multiple-choice archetypes {picks}")
         if band == "k1":
             check(not [a for a in playable
                        if a in math_engine.FREE_RESPONSE_ARCHETYPES],
                   f"{topic}/k1: a free-response archetype is playable for ages 4-6")
         else:
-            check([a for a in arche_list
-                   if a in math_engine.FREE_RESPONSE_ARCHETYPES],
-                  f"{topic}/{band}: no free-response option at all")
+            check(types, f"{topic}/{band}: no free-response option at all")
+        # Every archetype is one of the two honest presentations. Nothing may
+        # quietly reintroduce a third "walk over these" interaction.
+        check(mechanics <= {"pick", "type", "group"},
+              f"{topic}/{band}: unexpected mechanic in {mechanics}")
+        # And the questions in a cell must not all be the same idea rendered
+        # twice: either two concepts, or one concept in two wordings.
+        cell_concepts = math_engine.concepts_for(topic, band)
+        check(len(cell_concepts) >= 2 or len(arche_list) >= 2,
+              f"{topic}/{band}: only one way to ask a question")
         for level in range(1, 6):
             for arche in arche_list:
                 for trial in range(6):
@@ -263,6 +282,181 @@ else:
 print("\nSample prompt per topic/band/archetype (level 3):")
 for row in matrix_rows:
     print(f"  {row[0]:<20} {row[1]:<3} {row[2]:<22} {row[3]:<7} {row[4]:<14} {row[5]}")
+
+# ============================================================================
+# PART 1b - THE BAND-RELATIVE FLOOR AND THE BANK'S CONCEPT GATE
+#
+# This is the part that encodes the 2026-09-19b playtest note:
+#   "the questions are way too easy... it can be a door with 6 sides and
+#    literally make u count 1 thru 6 as a 10 year old"
+#   "use the bank to gate what kind of question is appropriate!"
+# ============================================================================
+
+print("\n" + "=" * 72)
+print("PART 1b - band-relative difficulty floors + bank concept gating")
+print("=" * 72)
+
+# --- 1. the ladder itself -------------------------------------------------
+# A band's level 5 and the next band's level 1 must land on the SAME rung.
+# That IS the "an older band's easiest is where a younger band's hardest was"
+# requirement, stated exactly.
+LADDER = [("k1", "23"), ("23", "45")]
+for younger, older in LADDER:
+    top = math_engine.difficulty_rung(younger, 5)
+    floor = math_engine.difficulty_rung(older, 1)
+    check(top == floor,
+          f"band {younger} L5 is rung {top} but band {older} L1 is rung {floor} "
+          f"- the bands do not meet, so the older band restarts from scratch")
+    check(math_engine.difficulty_rung(older, 1) >
+          math_engine.difficulty_rung(younger, 1),
+          f"band {older} starts no higher than band {younger}")
+print(f"  rungs: k1 L1-L5 = "
+      f"{[math_engine.difficulty_rung('k1', L) for L in range(1, 6)]}, "
+      f"23 = {[math_engine.difficulty_rung('23', L) for L in range(1, 6)]}, "
+      f"45 = {[math_engine.difficulty_rung('45', L) for L in range(1, 6)]}")
+
+# Within a band the rung must strictly rise with the level.
+for band in math_engine.BANDS:
+    rungs = [math_engine.difficulty_rung(band, L) for L in range(1, 6)]
+    check(rungs == sorted(set(rungs)), f"{band}: rungs do not strictly rise: {rungs}")
+
+# --- 2. the headline gate: no shape-counting for ages 9-10 ---------------
+# Sampled exhaustively rather than by spot check, because this is the exact
+# thing that shipped to a ten-year-old and nobody noticed.
+SHAPE_CONCEPTS = {"shape_id", "shape_sides", "shape_sides_total"}
+leaked = []
+for level in range(1, 6):
+    for arche in math_engine.archetypes_for("geometry", "45"):
+        concept = math_engine.ARCHETYPE_CONCEPT.get(arche)
+        if concept in SHAPE_CONCEPTS:
+            leaked.append(arche)
+check(not leaked,
+      f"ages 9-10 can still be asked to identify or count shape sides: {leaked}")
+
+# ... and by generating, in case the registry and the generators disagree.
+emitted_45 = set()
+for level in range(1, 6):
+    for trial in range(60):
+        ch = math_engine.generate_challenge("geometry", "45", level, "Mochi",
+                                            ["cat", "cliff"], seed=level * 977 + trial)
+        emitted_45.add(ch.get("concept"))
+check(not (emitted_45 & SHAPE_CONCEPTS),
+      f"a 9-10 geometry quest emitted {emitted_45 & SHAPE_CONCEPTS}")
+check("triangle_angle_sum" in {c for a in math_engine.archetypes_for("geometry", "45")
+                               for c in [math_engine.ARCHETYPE_CONCEPT.get(a)]},
+      "ages 9-10 geometry has no triangle angle sum - the bank's hardest grade-5 row")
+print(f"  ages 9-10 geometry concepts: {sorted(emitted_45)}")
+
+# --- 3. the mirror gate: no grade-5 concepts for ages 4-6 ----------------
+ADVANCED = {"triangle_angle_sum", "triangle_area", "box_volume", "frac_divide",
+            "frac_multiply", "frac_add_unlike", "dec_mul", "two_step_linear",
+            "sdt_speed", "div_remainder"}
+for topic in math_engine.TOPICS:
+    if "k1" not in math_engine.TOPIC_BANDS[topic]:
+        continue
+    got = set(math_engine.concepts_for(topic, "k1"))
+    check(not (got & ADVANCED),
+          f"{topic}/k1: ages 4-6 were offered {got & ADVANCED}")
+
+# --- 4. the easiest 9-10 question is harder than the hardest 4-6 one -----
+# Compared on the magnitude of the numbers actually generated, for the one
+# topic both bands share a concept in (addition).
+import re as _re
+import statistics as _stats
+
+
+def _biggest(topic, band, level, n=60):
+    """The median LARGEST number a cell puts in front of a child.
+
+    Median, not min or max: a single unlucky seed says nothing, and the
+    question is what the cell typically feels like.
+    """
+    out = []
+    for s in range(n):
+        prompt = math_engine.generate_challenge(
+            topic, band, level, "Mochi", ["cat"], seed=s)["prompt"]
+        nums = [int(x) for x in _re.findall(r"\d+", prompt)]
+        if nums:
+            out.append(max(nums))
+    return _stats.median(out) if out else 0
+
+
+mags = {(b, lv): _biggest("addition", b, lv)
+        for b in ("k1", "23", "45") for lv in (1, 5)}
+# THE headline requirement, stated on the numbers a child actually sees:
+# an older band's EASIEST is at least as hard as the younger band's HARDEST.
+check(mags[("45", 1)] >= mags[("23", 5)] * 0.9,
+      f"the 9-10 band's easiest addition (median {mags[('45', 1)]}) is easier "
+      f"than the 7-8 band's hardest (median {mags[('23', 5)]})")
+check(mags[("23", 1)] > mags[("k1", 5)],
+      f"the 7-8 band's easiest addition (median {mags[('23', 1)]}) is no harder "
+      f"than the 4-6 band's hardest (median {mags[('k1', 5)]})")
+# ... and every band still gets a real five-level climb of its own.
+for band in ("k1", "23", "45"):
+    check(mags[(band, 5)] > mags[(band, 1)] * 1.5,
+          f"band {band} barely gets harder across its five levels: "
+          f"{mags[(band, 1)]} -> {mags[(band, 5)]}")
+print("  addition magnitudes (median largest operand): "
+      + ", ".join(f"{b} L{lv}={int(mags[(b, lv)])}"
+                  for b in ("k1", "23", "45") for lv in (1, 5)))
+
+# --- 5. the static gate table matches the live CSV bank ------------------
+# If someone edits a CSV so a concept moves grade, this fails loudly rather
+# than silently mis-pitching a question at a child.
+bank_now = question_bank.load(force=True)
+if bank_now.available:
+    mined = bank_now.concept_grades_flat()
+    check(set(mined) == set(math_engine.CONCEPT_GRADES),
+          f"CONCEPT_GRADES and the CSV bank disagree about WHICH concepts exist: "
+          f"only in bank {sorted(set(mined) - set(math_engine.CONCEPT_GRADES))}, "
+          f"only in math_engine "
+          f"{sorted(set(math_engine.CONCEPT_GRADES) - set(mined))}")
+    for concept, grades in sorted(mined.items()):
+        check(tuple(grades) == math_engine.CONCEPT_GRADES.get(concept),
+              f"concept {concept}: bank says grades {tuple(grades)}, "
+              f"math_engine says {math_engine.CONCEPT_GRADES.get(concept)}")
+        if concept in math_engine.CONCEPT_BAND_OVERRIDE:
+            # A deliberate product narrowing, not a curriculum fact. It may
+            # only ever REMOVE bands the bank would have allowed.
+            check(set(math_engine.concept_bands(concept))
+                  <= set(bank_now.concept_bands(concept)),
+                  f"override for {concept} ADDED a band the bank forbids: "
+                  f"{math_engine.concept_bands(concept)} vs "
+                  f"{bank_now.concept_bands(concept)}")
+        else:
+            check(bank_now.concept_bands(concept) ==
+                  math_engine.concept_bands(concept),
+                  f"concept {concept}: bank gates it to "
+                  f"{bank_now.concept_bands(concept)}, math_engine to "
+                  f"{math_engine.concept_bands(concept)}")
+    print(f"  {len(mined)} concepts mined from {bank_now.rows_read} CSV rows; "
+          f"math_engine's mirror agrees with every one")
+
+# --- 6. every cell survived the gate, and the relaxations are declared ---
+for topic in math_engine.TOPICS:
+    for band in math_engine.TOPIC_BANDS[topic]:
+        concepts = math_engine.concepts_for(topic, band)
+        check(concepts, f"{topic}/{band}: the concept gate left NOTHING playable")
+        for concept in concepts:
+            allowed = math_engine.concept_bands(concept)
+            check(band in allowed or (topic, band) in math_engine.RELAXED_CELLS,
+                  f"{topic}/{band}: concept {concept} is gated to {allowed} "
+                  f"but is playable here, and the cell is not declared relaxed")
+check(math_engine.RELAXED_CELLS == [("time_and_money", "k1")],
+      f"the set of relaxed cells changed: {math_engine.RELAXED_CELLS} "
+      f"- update the report in HANDOFF.md")
+print(f"  every topic x band cell is playable; relaxed cells: "
+      f"{math_engine.RELAXED_CELLS}")
+
+# --- 7. the deleted gimmicks cannot come back through a concept ----------
+for topic in math_engine.TOPICS:
+    for band in math_engine.TOPIC_BANDS[topic]:
+        for arche in math_engine.archetypes_for(topic, band):
+            check(arche not in math_engine.DELETED_ARCHETYPES,
+                  f"{topic}/{band}: deleted archetype {arche} is registered")
+            check(math_engine.ARCHETYPE_CONCEPT.get(arche),
+                  f"{topic}/{band}: {arche} has no concept, so nothing gates it")
+
 
 # --------------------------------------------------------- k1 no-reading
 
@@ -350,8 +544,9 @@ for name, why in sorted(math_engine.DELETED_ARCHETYPES.items()):
                  and "Replaces the deleted" not in (
                      getattr(getattr(math_engine, fn), "__doc__", "") or "")]
     check(not leftovers, f"deleted archetype {name} still has a generator: {leftovers}")
-check(len(math_engine.DELETED_ARCHETYPES) == 6,
-      "the cull list changed size - update the report in HANDOFF.md")
+check(len(math_engine.DELETED_ARCHETYPES) == 21,
+      f"the cull list is now {len(math_engine.DELETED_ARCHETYPES)} - "
+      f"update the report in HANDOFF.md")
 
 # ------------------------------------------------------ obstacle policy
 
@@ -359,9 +554,9 @@ print("\n" + "=" * 72)
 print("PART 3 - obstacle policy: mistakes add SCENERY, never distractor stones")
 print("=" * 72)
 base = math_engine.generate_challenge("addition", "23", 3, "Mochi", ["cat", "river"],
-                                      mistakes_total=0, archetype="berry_baskets", seed=99)
+                                      mistakes_total=0, archetype="add_2_pick", seed=99)
 hard = math_engine.generate_challenge("addition", "23", 3, "Mochi", ["cat", "river"],
-                                      mistakes_total=5, archetype="berry_baskets", seed=99)
+                                      mistakes_total=5, archetype="add_2_pick", seed=99)
 print(f"  0 mistakes -> {len(base['stones'])} stones, {base['obstacle_count']} obstacles")
 print(f"  5 mistakes -> {len(hard['stones'])} stones, {hard['obstacle_count']} obstacles")
 check(len(base["stones"]) == len(hard["stones"]),
@@ -401,17 +596,19 @@ def next_beat(sid):
 
 
 def walk_interlude(sid, challenge):
-    """What the browser does at an interlude: walk it, then move on.
+    """What the browser does at an interlude: cross it, then move on.
 
     Answering one must be refused outright - scoring a beat with no question
     would corrupt the streak and the adaptation that hangs off it.
     """
     check(challenge["prompt"] == "", "an interlude shipped a question prompt")
     check(challenge["stones"] == [], "an interlude shipped answer stones")
-    check(challenge["traversal"]["steps"] >= 1,
-          "an interlude has nothing to walk")
-    check(challenge["traversal"]["gates_question"] is False,
-          "an interlude claims to gate a question")
+    ob = challenge["obstacle"]
+    check(ob["steps"] >= 1, "an interlude has nothing to cross")
+    check(ob["unlocked_by"] == "effort",
+          "an interlude claims to need a question answered first")
+    check(ob["locked_text"] and ob["cleared_text"],
+          "an interlude obstacle has no before/after prose")
     bad = client.post("/api/answer", json={"session_id": sid, "stone_ids": []})
     check(bad.status_code == 400,
           f"answering an interlude was accepted ({bad.status_code})")
@@ -668,8 +865,8 @@ for i, (b, sk) in enumerate(zip(ai_q["beats"], built)):
     check(b["intro"] == FAKE_STORY["beats"][sk["slot"]]["intro"],
           f"AI beat {i} (slot {sk['slot']}): intro dropped")
     check(b["location"], f"AI beat {i}: no visual location for the frame painter")
-    check(b.get("traversal", {}).get("steps", 0) >= 1,
-          f"AI beat {i}: no traversal - the child would teleport there")
+    check(b.get("obstacle") in story_engine.OBSTACLES,
+          f"AI beat {i}: no obstacle - there is nothing for the answer to unlock")
 print(f"  {len(built)} of {len(skel)} stops used: prose from the model, all "
       f"{len(MACHINERY)} machinery fields from the skeleton.")
 check(any(b.get("no_fail") for b in ai_q["beats"]),
@@ -1009,12 +1206,15 @@ for band in ("k1", "23", "45"):
             continue
         c = story_engine.complexity_for(band, topic)
         sk = story_engine.build_skeleton(band, topic)
+        # build_skeleton makes the ARC; obstacles are handed out afterwards,
+        # because which one a stop deserves depends on where it landed.
+        story_engine.assign_obstacles(sk, random.Random(11), "river", ["river"])
         shapes[(band, topic)] = {
             "complexity": c,
             "beats": len(sk),
             "interludes": sum(1 for b in sk if b.get("no_question")),
             "locations": len({b["camera"] for b in sk}),
-            "walk": sum(b["traversal"]["steps"] for b in sk),
+            "walk": sum(story_engine.OBSTACLES[b["obstacle"]]["steps"] for b in sk),
             "register": story_engine.register_for(c),
         }
         check(len(sk) >= story_engine.MIN_BEATS,
@@ -1029,11 +1229,21 @@ for band in ("k1", "23", "45"):
               f"{band}/{topic}: does not end in a resolution beat")
         check(any(b.get("finale") for b in sk),
               f"{band}/{topic}: has no finale beat")
-        for b in sk:
-            check(b["traversal"]["steps"] >= 1,
-                  f"{band}/{topic}: a beat has no traversal to walk")
-            check(b["traversal"]["kind"] in story_engine.TRAVERSAL_HINT,
-                  f"{band}/{topic}: unknown traversal kind {b['traversal']['kind']}")
+        kinds = [b.get("obstacle") for b in sk]
+        for k in kinds:
+            check(k in story_engine.OBSTACLES,
+                  f"{band}/{topic}: unknown obstacle kind {k!r}")
+        check(not [1 for a, b2 in zip(kinds, kinds[1:]) if a == b2],
+              f"{band}/{topic}: the same obstacle twice in a row: {kinds}")
+        check(len(set(kinds)) >= 3,
+              f"{band}/{topic}: only {len(set(kinds))} distinct obstacles "
+              f"in the whole quest: {kinds}")
+        dramas = [story_engine.OBSTACLES[k]["drama"] for k in kinds]
+        climax_at = next((i for i, b in enumerate(sk) if b.get("finale")), None)
+        if climax_at is not None:
+            check(dramas[climax_at] == max(dramas),
+                  f"{band}/{topic}: the climax is not the most dramatic "
+                  f"obstacle in the quest: {list(zip(kinds, dramas))}")
 
 print(f'  {"band/topic":<30} {"cx":>2} {"beats":>5} {"inter":>5} '
       f'{"cams":>4} {"steps":>5}  register')
@@ -1048,8 +1258,15 @@ check(rich["beats"] > simple["beats"],
       f'a 4-6 addition quest ({simple["beats"]} stops)')
 check(rich["interludes"] > simple["interludes"],
       "the harder quest has no extra non-question story beats")
-check(rich["walk"] > simple["walk"] * 1.5,
-      f'the harder quest barely walks further ({rich["walk"]} vs {simple["walk"]})')
+# Crossing length is now a property of the OBSTACLE, nudged by complexity -
+# a chasm is two big moments, a ford is five small ones - so the old "1.5x
+# further" rule no longer describes the design. What must still hold is that
+# the harder quest is a longer journey overall.
+check(rich["walk"] > simple["walk"],
+      f'the harder quest does not cross further ({rich["walk"]} vs {simple["walk"]})')
+check(rich["walk"] + rich["beats"] > (simple["walk"] + simple["beats"]) * 1.4,
+      f'the harder quest is not a materially longer journey '
+      f'({rich["walk"]}+{rich["beats"]} vs {simple["walk"]}+{simple["beats"]})')
 check(rich["register"] == "rich" and simple["register"] == "simple",
       "vocabulary register does not change with complexity")
 check(rich["locations"] >= simple["locations"],
@@ -1077,17 +1294,27 @@ ch6 = d6["challenge"]
 guard = 0
 walked = 0
 questions = 0
+seen_obstacles = []
 finale_seen = None
 typed_used = 0
 last_state = {}
 while ch6 is not None and guard < 16:
     guard += 1
-    tv = ch6["traversal"]
-    check(tv["steps"] >= 1, f'beat {guard}: no traversal - question would teleport in')
-    check(tv["hint"], f'beat {guard}: traversal has no keyboard hint for the child')
-    check(tv["gates_question"] == (not is_interlude(ch6)),
-          f'beat {guard}: traversal gating disagrees with the beat kind')
-    walked += tv["steps"]
+    ob = ch6["obstacle"]
+    check(ob["kind"] in story_engine.OBSTACLES,
+          f'beat {guard}: unknown obstacle {ob["kind"]!r}')
+    check(ob["steps"] >= 1, f'beat {guard}: an obstacle with nothing to cross')
+    check(ob["hint"] and ob["keys"],
+          f'beat {guard}: obstacle has no keyboard instruction for the child')
+    check(ob["visual"], f'beat {guard}: obstacle has no visual family to paint')
+    check(ob["unlocked_by"] == ("effort" if is_interlude(ch6) else "question"),
+          f'beat {guard}: obstacle unlock rule disagrees with the beat kind')
+    check(ob["locked_text"], f'beat {guard}: nothing tells the child why they stopped')
+    # The question must NOT be gated any more - it is the key, not the prize.
+    check(ch6["traversal"]["gates_question"] is False,
+          f'beat {guard}: something still gates the question behind a walk')
+    seen_obstacles.append(ob["kind"])
+    walked += ob["steps"]
     if is_interlude(ch6):
         nx = walk_interlude(sid6, ch6)
     else:
@@ -1106,8 +1333,14 @@ while ch6 is not None and guard < 16:
         nx = next_beat(sid6)
     ch6 = None if nx["complete"] else nx["challenge"]
 
-print(f'  {questions} questions, {walked} traversal steps across the quest, '
+print(f'  {questions} questions, {walked} crossing steps across the quest, '
       f'{typed_used} of them typed')
+print(f'  obstacles faced: {" -> ".join(seen_obstacles)}')
+check(len(set(seen_obstacles)) >= 3,
+      f'the whole quest used only {len(set(seen_obstacles))} distinct '
+      f'obstacles: {seen_obstacles}')
+check(not [1 for a, b in zip(seen_obstacles, seen_obstacles[1:]) if a == b],
+      f'the same obstacle appeared twice in a row: {seen_obstacles}')
 check(walked >= questions, "there were more questions than steps walked")
 check(finale_seen is not None, "the quest never reached a finale beat")
 check(finale_seen["archetype"] == "final_gate",
@@ -1137,7 +1370,12 @@ for raw, want in [("7", 7.0), (" 7 ", 7.0), ("7.5", 7.5), ("-3", -3.0),
                   ("1,200", 1200.0), ("$3.50", 3.5), ("45 cm", 45.0),
                   ("= 12", 12.0), ("12 cents", 12.0), ("90 km/h", 90.0),
                   ("", None), ("   ", None), (None, None), ("abc", None),
-                  ("-", None), (".", None), ("1/2", None)]:
+                  ("-", None), (".", None),
+                  # fractions and mixed numbers - both written forms, because
+                  # a child taught to write 4/3 as "1 1/3" is not wrong
+                  ("1/2", 0.5), ("3/4", 0.75), ("4/3", 4 / 3),
+                  ("1 1/3", 4 / 3), ("-1 1/2", -1.5), ("= 3/4", 0.75),
+                  ("1/0", None), ("km/h", None), ("/", None)]:
     got = app_module.parse_typed_number(raw)
     check(got == want, f"parse_typed_number({raw!r}) = {got!r}, wanted {want!r}")
 print(f"  parse_typed_number handles spaces, units, currency and commas; "
@@ -1157,9 +1395,10 @@ for topic in math_engine.TOPICS:
                 v = ch["answer_value"]
                 places = int(ch.get("decimals") or 0)
                 ids, cid = [], set()
-                # exactly right, and right with trailing noise a child types
-                for good in (f"{v:.{places}f}", f" {v:.{places}f} ",
-                             f"{v:.{places}f}{ch.get('unit') or ''}"):
+                written = ch.get("answer_text") or f"{v:.{places}f}"
+                # exactly right, and right with the noise a child adds
+                for good in (written, f" {written} ",
+                             f"{written}{ch.get('unit') or ''}"):
                     check(_grade(ch, ids, set(), cid, good),
                           f"{topic}/{band}/{arche}/L{level}: rejected {good!r}")
                 # a whole unit out is wrong at every precision
@@ -1170,8 +1409,23 @@ for topic in math_engine.TOPICS:
                     # a unit of the last place the question asked for
                     check(_grade(ch, ids, set(), cid, f"{v:.{places + 2}f}"),
                           f"{topic}/{band}/{arche}: punished extra precision")
-                check(len(f"{v:.{places}f}") <= 8,
-                      f"{topic}/{band}/{arche}: answer {v} is too long to type")
+                if ch.get("answer_text"):
+                    # BOTH written forms of a fraction must grade correct -
+                    # "4/3" and "1 1/3" are the same number and a child taught
+                    # either one is right.
+                    from fractions import Fraction as _F
+                    parts = ch["answer_text"].split()
+                    fr = (_F(parts[0]) + _F(parts[1])) if len(parts) == 2 \
+                        else _F(parts[0])
+                    improper = f"{fr.numerator}/{fr.denominator}"
+                    check(_grade(ch, ids, set(), cid, improper),
+                          f"{topic}/{band}/{arche}: rejected the improper form "
+                          f"{improper} of {ch['answer_text']!r}")
+                    check(ch.get("answer_form") == "fraction",
+                          f"{topic}/{band}/{arche}: fraction answer with no "
+                          f"answer_form hint for the type-in box")
+                check(len(written) <= 8,
+                      f"{topic}/{band}/{arche}: answer {written!r} is too long to type")
 print(f"  {fr_seen} free-response archetypes, all graded by value with "
       f"tolerance, none offered to ages 4-6.")
 

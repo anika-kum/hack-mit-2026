@@ -637,6 +637,10 @@ function applyPlayBand() {
     play.bottom = Math.max(play.top + 70, clamp(safe.bottom, 0.1, 1) * H);
   }
   hero.y = clamp(hero.y, play.top - 30, Math.max(play.top, play.bottom - hero.h));
+  // The walkable band just moved, so the crossing has to move with it.
+  // Showing the question box shrinks the band AFTER the stations were first
+  // laid out, which is how two stepping stones ended up underneath it.
+  try { layoutObstacle(); } catch (e) { /* before the obstacle exists */ }
 }
 
 /* Resize the backing store to the stage, then rebuild everything that was
@@ -1219,109 +1223,215 @@ function updateJourney() {
 }
 
 
-/* ═══════════ 8b. ★ THE TRAVERSAL — you WALK to the question ★ ═══════
+/* ═══════════ 8b. ★ THE OBSTACLE — the question is the KEY ★ ═══════
 
-   The loudest note from the playtest was that "the story is told through a
-   series of questions rather than some storyline in which the questions
-   happen to need to be answered." This is the fix.
+   Playtest, verbatim:
+     "dont make it like a trail u always need to go thru, do trails, walks,
+      maybe like hurdles??"
+     "make it like to jump over the cliff she needs to answer this
+      question!! thats fun"
+     "i want to add 4 directions of movement for the character like if the
+      pebbles are above, then it should move up as well"
+     "i dont see the different obstacle types??? like they should be part of
+      river if ur in a river u should take a boat"
 
-   Every beat arrives with a `traversal`: a handful of nodes strung across
-   the middle band of the screen. The child crosses them with the ARROW
-   KEYS — hop the stones, climb the ledges, shoulder the log — and only
-   when the last one is reached does the question appear. Some beats
-   (interludes) have no question at all: the walk IS the beat.
+   What that adds up to, and what this section implements:
 
-   Clicking a node works too. That is not a cop-out: it keeps the game
-   playable on a tablet and gives a child with no keyboard a way through.
-   The keyboard is the default and the hint always names it.
-*/
+   1. THE HERO ROAMS IN 2D. ←↑↓→ all move. There is NO gravity and no ground
+      line — if a stone sits high in the frame the child walks UP to it. That
+      is the base navigation model and it is never taken away.
 
-const walkState = {
-  active: false,     // are the arrow keys currently the whole game?
-  nodes: [],         // [{x, y, hit, pop}]
-  at: 0,             // index of the node we are heading for
-  spec: null,        // the server's traversal descriptor
-  gates: true,       // does a question wait at the end?
-  finishing: false,  // guard so finishWalk only fires once
+   2. THE QUESTION COMES FIRST. The hero arrives at something they cannot
+      pass and the question is what unlocks it. Answer, and the crossing
+      opens; then the child PERFORMS it.
+
+   3. THE CROSSING IS CONTEXTUAL, NOT PHYSICS. Walk to each station with the
+      arrow keys; where the obstacle calls for it, press the named action key
+      (SPACE to leap, ↑ to haul up, ↓ to duck). The arc/animation lives
+      INSIDE that moment and never governs normal walking.
+
+   4. FORGIVING. A mistimed or wrong key does nothing at all — no penalty, no
+      fail state, no dead end. Press it again.
+
+   5. THE OBSTACLE BELONGS TO THE WORLD. The backend picks it from the
+      child's own setting (a boat on a river, ledges on a cliff) and ships a
+      `visual` family; every family paints differently. A rope bridge and a
+      locked gate must never look alike. */
+
+const obState = {
+  active: false,        // is a crossing in progress?
+  locked: true,         // still waiting on the question?
+  spec: null,           // the server's obstacle descriptor
+  visual: 'stones',
+  stations: [],         // [{x, y, r, done, pop, armed}]
+  at: 0,
+  actionKey: null,      // ' ' | 'ArrowUp' | 'ArrowDown' | null (walk-on)
+  anim: 0,              // 0..1 while an action plays out
+  animFrom: null,
+  animTo: null,
+  finishing: false,
+  outcome: 'win',
+  gated: true,          // does a question unlock this one?
 };
 
-const WALK_NODE_R = 26;
-const WALK_REACH = 1.15;             // how close counts as "on it"
+const OB_NODE_R = 26;
+const OB_REACH = 1.25;
 
-/* Node shapes by kind. Horizontal always; the vertical profile is what
-   makes hopping stones feel different from climbing a cliff. */
-function walkProfile(kind, t) {
-  switch (kind) {
-    case 'ledge':  return 0.86 - t * 0.72;          // climbing: up and away
-    case 'stones': return 0.5 + Math.sin(t * Math.PI * 2.1) * 0.30;
-    case 'reeds':  return 0.42 + Math.sin(t * Math.PI * 1.4) * 0.18;
-    case 'log':    return 0.58;
-    case 'gate':   return 0.5 + (t % 2 ? 0.16 : -0.16);
-    default:       return 0.55 + Math.sin(t * Math.PI) * 0.12;
+/* ── the art ───────────────────────────────────────────────────────────
+   One palette + painter per VISUAL family. This is the bit the team could
+   not see: previously every beat drew the same grey blobs in a line. */
+const OB_ART = {
+  stones:     { fill: '#D9CDB6', edge: '#9B8768', done: '#CFE6CB', doneEdge: '#6BA36A' },
+  water:      { fill: '#BFE0F2', edge: '#5E93B8', done: '#D8F0FF', doneEdge: '#3E85BE' },
+  boat:       { fill: '#C9A277', edge: '#8A6440', done: '#E6D2A8', doneEdge: '#E0913A' },
+  logs:       { fill: '#C08A5A', edge: '#7A4F2C', done: '#E3C79A', doneEdge: '#B4712F' },
+  logcross:   { fill: '#BE9268', edge: '#7A5434', done: '#E0C69C', doneEdge: '#AE7233' },
+  ledges:     { fill: '#CBB59A', edge: '#8A7254', done: '#F8D2BF', doneEdge: '#F0965B' },
+  ropebridge: { fill: '#D6C3A2', edge: '#8B7048', done: '#F3DDB4', doneEdge: '#C4913C' },
+  gap:        { fill: '#B9A78F', edge: '#6E5B45', done: '#F6D79B', doneEdge: '#D98A2B' },
+  bridge:     { fill: '#C9A277', edge: '#8A6440', done: '#E6D2A8', doneEdge: '#E0913A' },
+  gate:       { fill: '#CDD8E4', edge: '#5A6C88', done: '#CFE4F6', doneEdge: '#3E85BE' },
+  hoops:      { fill: '#F6D08A', edge: '#C98A24', done: '#FFE9B8', doneEdge: '#E0913A' },
+  branches:   { fill: '#A9C58A', edge: '#5E7E44', done: '#D6ECBB', doneEdge: '#6BA36A' },
+  vine:       { fill: '#8FBF74', edge: '#4C7239', done: '#CDE9B4', doneEdge: '#5E9A46' },
+  dunes:      { fill: '#EBD6A6', edge: '#C0A164', done: '#FBEDC6', doneEdge: '#D9A63F' },
+  squeeze:    { fill: '#B8ADA4', edge: '#6B625B', done: '#DED4C9', doneEdge: '#94826F' },
+  rocks:      { fill: '#A9A39C', edge: '#5E5851', done: '#D3CCC3', doneEdge: '#7E756A' },
+  hedge:      { fill: '#9FC488', edge: '#54763F', done: '#D2E9BC', doneEdge: '#6BA36A' },
+};
+
+function obArt() {
+  return OB_ART[obState.visual] || OB_ART.stones;
+}
+
+/* Where the stations sit vertically, as a 0..1 fraction of the play band.
+   THIS is what makes four-directional movement matter: ledges climb, hoops
+   alternate high and low, dunes saw upward. The child must move UP and DOWN,
+   not only along. */
+function obProfile(visual, t, i) {
+  switch (visual) {
+    case 'ledges':     return 0.92 - t * 0.80;                 // a staircase up
+    case 'dunes':      return 0.80 - t * 0.45 + (i % 2 ? 0.10 : 0);
+    case 'hoops':      return i % 2 ? 0.24 : 0.66;             // line up with ↑ ↓
+    case 'hedge':      return i % 2 ? 0.30 : 0.70;
+    case 'branches':   return 0.30 + (i % 2 ? 0.06 : 0);       // duck UNDER these
+    case 'rocks':      return 0.42 + Math.sin(t * Math.PI * 2.7) * 0.30;
+    case 'stones':     return 0.50 + Math.sin(t * Math.PI * 2.1) * 0.32;
+    case 'water':      return 0.46 + Math.sin(t * Math.PI * 1.4) * 0.20;
+    case 'ropebridge': return 0.38 + Math.sin(t * Math.PI) * 0.26;   // the sag
+    case 'gap':        return 0.58;
+    case 'vine':       return t < 0.5 ? 0.62 : 0.34;
+    case 'boat':       return 0.56;
+    case 'squeeze':    return 0.52;
+    case 'logcross':   return 0.54;
+    default:           return 0.55 + Math.sin(t * Math.PI) * 0.14;
   }
 }
 
-function layoutWalk() {
-  const n = walkState.nodes.length;
+/* Which key CLEARS a station, read from the obstacle the server sent. A
+   `keys` list with SPACE in it means the crossing has an action moment; ↑ or
+   ↓ alone means the action is a haul or a duck. Anything else is walk-on. */
+function obActionKey(keys, action) {
+  const k = (keys || []).map(String);
+  if (k.includes('SPACE')) return ' ';
+  if (action === 'climb' || action === 'trudge') return 'ArrowUp';
+  if (action === 'duck' || action === 'squeeze') return 'ArrowDown';
+  return null;
+}
+
+function layoutObstacle() {
+  const n = obState.stations.length;
   if (!n) return;
-  const kind = (walkState.spec && walkState.spec.kind) || 'stones';
-  const r = clamp(WALK_NODE_R * (W / 960), 15, 40);
-  const x0 = W * 0.20, x1 = W * 0.88;
+  const r = clamp(OB_NODE_R * (W / 960), 15, 40);
+  const x0 = W * 0.18, x1 = W * 0.88;
   const bandTop = play.top + r;
-  const bandH = Math.max(40, (play.bottom - r) - bandTop);
-  walkState.nodes.forEach((node, i) => {
+  const bandH = Math.max(50, (play.bottom - r) - bandTop);
+  obState.stations.forEach((st, i) => {
     const t = n === 1 ? 0.5 : i / (n - 1);
-    node.x = lerp(x0, x1, t);
-    node.y = bandTop + clamp(walkProfile(kind, t), 0.05, 0.95) * bandH;
-    node.r = r;
+    st.x = lerp(x0, x1, t);
+    st.y = bandTop + clamp(obProfile(obState.visual, t, i), 0.04, 0.96) * bandH;
+    st.r = r;
   });
 }
 
-function startTraversal(spec, gates) {
-  const steps = clamp(Math.round(num(field(spec, 'steps'), 3)), 1, 8);
-  walkState.spec = spec || {};
-  walkState.gates = !!gates;
-  walkState.at = 0;
-  walkState.finishing = false;
-  walkState.nodes = [];
-  for (let i = 0; i < steps; i++) walkState.nodes.push({ x: 0, y: 0, r: 20, hit: false, pop: 0 });
-  layoutWalk();
-  walkState.active = true;
+/* Called when the challenge arrives. The obstacle is DRAWN immediately and
+   the hero stands in front of it — but it stays locked until the question is
+   answered, so the child sees what they are playing for. */
+function prepareObstacle(ob, gated) {
+  const steps = clamp(Math.round(num(field(ob, 'steps'), 3)), 1, 8);
+  obState.spec = ob || {};
+  obState.visual = String(field(ob, 'visual') || 'stones');
+  obState.gated = !!gated;
+  obState.locked = !!gated;
+  obState.active = false;
+  obState.at = 0;
+  obState.anim = 0;
+  obState.animFrom = obState.animTo = null;
+  obState.finishing = false;
+  obState.outcome = 'win';
+  obState.actionKey = obActionKey(field(ob, 'keys'), field(ob, 'action'));
+  obState.stations = [];
+  for (let i = 0; i < steps; i++) {
+    obState.stations.push({ x: 0, y: 0, r: 20, done: false, pop: 0, armed: false });
+  }
+  layoutObstacle();
 
-  // Park the hero just before the first node so the first arrow press
-  // visibly does something.
-  const first = walkState.nodes[0];
-  hero.x = clamp(first.x - hero.w * 2.2, 8, W - hero.w - 8);
-  hero.y = clamp(first.y - hero.h / 2, play.top - 20, play.bottom - hero.h);
+  // Park the hero just before the first station. Never on top of it, so the
+  // first press visibly does something — and never so far left that the
+  // DRAWN sprite hangs off the edge. The collision box is much narrower than
+  // the painted character, which is how the hero ended up half off-screen.
+  const first = obState.stations[0];
+  let drawnW = hero.w * 2;
+  try { drawnW = Math.max(hero.w, heroDrawHeight() * 0.95); } catch (e) { /* boot */ }
+  const leftLimit = Math.max(8, drawnW / 2 - hero.w / 2 + 12);
+  hero.x = clamp(first.x - hero.w - drawnW * 0.55,
+                 leftLimit, Math.max(leftLimit, W - hero.w - 8));
+  hero.y = clamp(first.y - hero.h / 2, play.top, play.bottom - hero.h);
   hero.face = 1;
-
-  renderWalkBand();
-  showQuestionBox(false);
+  renderObstacleBand();
 }
 
-function renderWalkBand() {
+/* The question was answered (or this is an interlude). Open the crossing. */
+function unlockObstacle(outcome) {
+  if (!obState.stations.length) { nextChallenge(); return; }
+  obState.outcome = outcome || 'win';
+  obState.locked = false;
+  obState.active = true;
+  obState.finishing = false;
+  showQuestionBox(false);
+  renderObstacleBand();
+  sfxPick();
+}
+
+function obstacleTitle() {
+  const s = obState.spec || {};
+  return firstStr(s.title, 'The Crossing');
+}
+
+function renderObstacleBand() {
   const band = $('walk-band');
   if (!band) return;
-  if (!walkState.active) { band.hidden = true; return; }
-  const spec = walkState.spec || {};
-  const n = walkState.nodes.length;
-  const noun = String(spec.noun || 'step');
-  const plural = /s$/.test(noun) ? noun : `${noun}s`;
+  if (!obState.active) { band.hidden = true; return; }
+  const s = obState.spec || {};
   const title = $('walk-title');
-  if (title) title.textContent = firstStr(spec.label, `${spec.verb || 'Cross'} the ${n} ${plural}`);
+  if (title) {
+    title.textContent = obState.outcome === 'retry'
+      ? `${obstacleTitle()} — let's do it together`
+      : obstacleTitle();
+  }
   const hint = $('walk-hint');
   if (hint) {
-    hint.innerHTML = `${escapeHtml(firstStr(spec.hint, 'Use the arrow keys'))} ` +
-      '<kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> ' +
-      '<span class="walk-or">· or tap the next one</span>';
+    const keys = (field(s, 'keys') || ['→']).map(
+      (k) => `<kbd>${escapeHtml(String(k))}</kbd>`).join('');
+    hint.innerHTML = `${escapeHtml(firstStr(s.hint, 'Use the arrow keys'))} ${keys}`;
   }
   const pips = $('walk-pips');
   if (pips) {
     pips.innerHTML = '';
-    walkState.nodes.forEach((node, i) => {
+    obState.stations.forEach((st, i) => {
       const el = document.createElement('i');
-      if (node.hit) el.className = 'done';
-      else if (i === walkState.at) el.className = 'now';
+      if (st.done) el.className = 'done';
+      else if (i === obState.at) el.className = 'now';
       pips.appendChild(el);
     });
   }
@@ -1337,155 +1447,518 @@ function showQuestionBox(on) {
   try { syncSafeZones(); } catch (e) { /* ignore */ }
 }
 
-/* One node crossed. */
-function hitWalkNode(i) {
-  const node = walkState.nodes[i];
-  if (!node || node.hit) return;
-  node.hit = true;
-  node.pop = 1;
-  walkState.at = Math.max(walkState.at, i + 1);
-  burst(node.x, node.y, '#F4D372', 9);
+/* One station crossed. `viaAction` means the child pressed the action key,
+   which earns the little arc animation. */
+function clearStation(i, viaAction) {
+  const st = obState.stations[i];
+  if (!st || st.done) return;
+  st.done = true;
+  st.pop = 1;
+  obState.at = Math.max(obState.at, i + 1);
+  burst(st.x, st.y, obArt().doneEdge, viaAction ? 14 : 9);
   blip(430 + i * 55, 0.1, 'sine', 0.05);
   hero.bounce = 1;
-  renderWalkBand();
-  if (walkState.nodes.every((nd) => nd.hit)) finishWalk();
+
+  if (viaAction) {
+    // The contextual action moment: a short arc from here to the next
+    // station. Lives entirely inside this moment — normal walking is
+    // untouched, and there is no gravity anywhere.
+    const next = obState.stations[i + 1];
+    obState.animFrom = { x: hero.x, y: hero.y };
+    obState.animTo = next
+      ? { x: clamp(next.x - hero.w / 2, 0, W - hero.w),
+          y: clamp(next.y - hero.h / 2, play.top, play.bottom - hero.h) }
+      : { x: clamp(st.x + hero.w * 1.8, 0, W - hero.w), y: hero.y };
+    obState.anim = 0.0001;
+  }
+  renderObstacleBand();
+  if (obState.stations.every((s) => s.done)) finishObstacle();
 }
 
-function finishWalk() {
-  if (walkState.finishing) return;
-  walkState.finishing = true;
-  walkState.active = false;
+function finishObstacle() {
+  if (obState.finishing) return;
+  obState.finishing = true;
+  obState.active = false;
   const band = $('walk-band');
   if (band) band.hidden = true;
-  sfxPick();
-
-  if (!walkState.gates) {
-    // An INTERLUDE: no question here at all. Beat the page over and move on.
-    setTimeout(() => { if (!state.locked) nextChallenge(); }, 620);
-    return;
-  }
-  revealQuestion();
+  sfxWin();
+  const cleared = firstStr(field(obState.spec, 'cleared_text'));
+  if (cleared) showNarration(cleared, obstacleTitle());
+  setTimeout(nextChallenge, cleared ? 1500 : 700);
 }
 
-/* The question only ever appears here — at the end of a walk. */
+function skipObstacle() {
+  if (!obState.active) return;
+  obState.stations.forEach((st) => { st.done = true; });
+  obState.at = obState.stations.length;
+  renderObstacleBand();
+  finishObstacle();
+}
+
+/* Movement. Only the ARMING is obstacle-specific — the hero's own 2D
+   walking (update(), below) is always live and always four-directional. */
+function updateObstacle() {
+  // advance a contextual action arc, if one is playing
+  if (obState.anim > 0) {
+    obState.anim = Math.min(1, obState.anim + 0.075);
+    const t = obState.anim;
+    const ease = t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2;
+    if (obState.animFrom && obState.animTo) {
+      hero.x = lerp(obState.animFrom.x, obState.animTo.x, ease);
+      // a real arc, but only for the duration of the action
+      const lift = Math.sin(t * Math.PI) * hero.h * 0.9;
+      hero.y = lerp(obState.animFrom.y, obState.animTo.y, ease) - lift;
+    }
+    if (obState.anim >= 1) {
+      obState.anim = 0;
+      obState.animFrom = obState.animTo = null;
+    }
+    return;                       // the arc owns the hero while it plays
+  }
+
+  if (!obState.active || obState.locked) return;
+
+  const hx = hero.x + hero.w / 2;
+  const hy = hero.y + hero.h / 2;
+  for (let i = 0; i < obState.stations.length; i++) {
+    const st = obState.stations[i];
+    if (st.done) continue;
+    if (i > obState.at) break;
+    const near = Math.hypot(hx - st.x, hy - st.y) < st.r * OB_REACH + hero.w * 0.45;
+    if (!near) { st.armed = false; break; }
+    if (!obState.actionKey) {
+      clearStation(i, false);      // walk-on obstacles clear by arriving
+    } else if (!st.armed) {
+      st.armed = true;             // in position; now press the key
+      renderObstacleBand();
+    }
+    break;
+  }
+}
+
+/* The action key was pressed. Clears the armed station, or does nothing at
+   all — a mistimed press is never punished, it just has no effect. */
+function obstacleAction(key) {
+  if (!obState.active || obState.locked || obState.anim > 0) return false;
+  if (!obState.actionKey || key !== obState.actionKey) return false;
+  const st = obState.stations[obState.at];
+  if (!st || st.done) return false;
+  if (!st.armed) {
+    // Not close enough yet. A tiny nudge forward, so a child who mashes the
+    // key still makes progress instead of feeling stuck.
+    nudgeToStation(st);
+    return true;
+  }
+  clearStation(obState.at, true);
+  return true;
+}
+
+function nudgeToStation(st) {
+  const dx = st.x - (hero.x + hero.w / 2);
+  const dy = st.y - (hero.y + hero.h / 2);
+  const m = Math.hypot(dx, dy) || 1;
+  const step = Math.min(m, hero.w * 1.2);
+  hero.x = clamp(hero.x + (dx / m) * step, 0, W - hero.w);
+  hero.y = clamp(hero.y + (dy / m) * step, play.top, play.bottom - hero.h);
+  if (dx) hero.face = Math.sign(dx) || hero.face;
+  hero.bounce = 1;
+}
+
+/* Tapping the next station walks to it — the tablet path, and the way out
+   for a child with no keyboard. */
+function obstacleClickAt(cx, cy) {
+  if (!obState.active || obState.locked) return false;
+  const i = obState.at;
+  const st = obState.stations[i];
+  if (!st || st.done) return false;
+  if (Math.hypot(cx - st.x, cy - st.y) < st.r * 2.4) {
+    hero.x = clamp(st.x - hero.w / 2, 0, W - hero.w);
+    hero.y = clamp(st.y - hero.h / 2, play.top, play.bottom - hero.h);
+    clearStation(i, !!obState.actionKey);
+    return true;
+  }
+  return false;
+}
+
+/* ── painting ──────────────────────────────────────────────────────────
+   Each family gets its own shape language, because "i dont see the
+   different obstacle types???" was a rendering bug, not a data one. */
+
+function obLinkPath(dashed) {
+  const sts = obState.stations;
+  if (sts.length < 2) return;
+  gctx.save();
+  gctx.strokeStyle = 'rgba(255,248,238,.55)';
+  gctx.lineWidth = Math.max(2, W / 420);
+  if (dashed) {
+    gctx.setLineDash([Math.max(6, W / 150), Math.max(8, W / 110)]);
+    gctx.lineDashOffset = -tick * 0.7;
+  }
+  gctx.beginPath();
+  sts.forEach((st, i) => { i ? gctx.lineTo(st.x, st.y) : gctx.moveTo(st.x, st.y); });
+  gctx.stroke();
+  gctx.restore();
+  gctx.setLineDash([]);
+}
+
+function obStationBase(st, i) {
+  const art = obArt();
+  const next = obState.active && i === obState.at && !st.done;
+  const r = st.r * (1 + st.pop * 0.25);
+  groundShadow(st.x, st.y + r * 0.82, r * 0.9, Math.max(4, r * 0.28), 0.2);
+  if (next && !obState.locked) {
+    const pulse = 0.5 + 0.5 * Math.sin(tick / 11);
+    glowAt(st.x, st.y, r * (2.1 + pulse * 0.5),
+           `rgba(244,211,114,${0.26 + pulse * 0.18})`, 'rgba(244,211,114,0)');
+  }
+  return { art, next, r };
+}
+
+/* A small marker above the station the child must act on. */
+function obActionCue(st, r) {
+  if (!obState.actionKey || !st.armed || st.done) return;
+  const label = obState.actionKey === ' ' ? 'SPACE'
+    : obState.actionKey === 'ArrowUp' ? '↑' : '↓';
+  const bob = Math.sin(tick / 7) * r * 0.18;
+  gctx.save();
+  gctx.font = `800 ${Math.round(Math.max(12, r * 0.62))}px 'Baloo 2', sans-serif`;
+  gctx.textAlign = 'center';
+  gctx.textBaseline = 'middle';
+  const w = gctx.measureText(label).width + r * 0.7;
+  const h = Math.max(18, r * 0.9);
+  rrect(st.x - w / 2, st.y - r * 2.2 + bob, w, h, h / 2);
+  fillStroke('rgba(255,250,241,.97)', obArt().doneEdge, 2.4);
+  gctx.fillStyle = '#6b5340';
+  gctx.fillText(label, st.x, st.y - r * 2.2 + bob + h / 2);
+  gctx.restore();
+}
+
+function obDrawDone(st, r) {
+  gctx.fillStyle = obArt().doneEdge;
+  gctx.font = `800 ${Math.round(r * 0.9)}px 'Baloo 2', sans-serif`;
+  gctx.textAlign = 'center';
+  gctx.textBaseline = 'middle';
+  gctx.fillText('✓', st.x, st.y);
+}
+
+const OB_PAINTER = {
+  /* flat discs — stones, rocks, dunes crests */
+  stones(st, i) {
+    const { art, r } = obStationBase(st, i);
+    gctx.beginPath();
+    gctx.ellipse(st.x, st.y, r, r * 0.74, 0, 0, TAU);
+    fillStroke(vGrad(st.y - r, st.y + r, st.done ? art.done : art.fill,
+                     darken(st.done ? art.done : art.fill, 0.84)),
+               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.13));
+    gctx.save(); gctx.globalAlpha = 0.5;
+    ellipse(st.x - r * 0.2, st.y - r * 0.3, r * 0.42, r * 0.16, '#FFFDF4', null, 0, -0.3);
+    gctx.restore(); gctx.globalAlpha = 1;
+    if (st.done) obDrawDone(st, r);
+  },
+  /* jagged slabs */
+  rocks(st, i) {
+    const { art, r } = obStationBase(st, i);
+    gctx.beginPath();
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * TAU - Math.PI / 2;
+      const rad = r * (k % 2 ? 0.72 : 1.02);
+      const px = st.x + Math.cos(a) * rad;
+      const py = st.y + Math.sin(a) * rad * 0.78;
+      k ? gctx.lineTo(px, py) : gctx.moveTo(px, py);
+    }
+    gctx.closePath();
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.13));
+    if (st.done) obDrawDone(st, r);
+  },
+  /* rippling water */
+  water(st, i) {
+    const { art, r } = obStationBase(st, i);
+    gctx.beginPath();
+    gctx.ellipse(st.x, st.y, r * 1.15, r * 0.6, 0, 0, TAU);
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2, r * 0.1));
+    gctx.save();
+    gctx.strokeStyle = 'rgba(255,255,255,.7)';
+    gctx.lineWidth = Math.max(1.5, r * 0.08);
+    for (let k = 0; k < 2; k++) {
+      const off = ((tick / 22) + k * 0.5) % 1;
+      gctx.beginPath();
+      gctx.ellipse(st.x, st.y, r * (0.4 + off * 0.8), r * (0.2 + off * 0.42), 0, 0, TAU);
+      gctx.globalAlpha = 0.55 * (1 - off);
+      gctx.stroke();
+    }
+    gctx.restore(); gctx.globalAlpha = 1;
+    if (st.done) obDrawDone(st, r);
+  },
+  /* a little flat-bottomed boat */
+  boat(st, i) {
+    const { art, r } = obStationBase(st, i);
+    OB_PAINTER.water(st, i);
+    gctx.beginPath();
+    gctx.moveTo(st.x - r, st.y - r * 0.12);
+    gctx.quadraticCurveTo(st.x, st.y + r * 0.72, st.x + r, st.y - r * 0.12);
+    gctx.closePath();
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.12));
+    gctx.strokeStyle = art.edge;
+    gctx.lineWidth = Math.max(2, r * 0.1);
+    gctx.beginPath();                             // the pole
+    gctx.moveTo(st.x + r * 0.5, st.y - r * 1.5);
+    gctx.lineTo(st.x + r * 0.1, st.y + r * 0.4);
+    gctx.stroke();
+  },
+  /* fallen logs, seen end-on: a tube to vault */
+  logs(st, i) {
+    const { art, r } = obStationBase(st, i);
+    rrect(st.x - r * 0.42, st.y - r * 0.95, r * 0.84, r * 1.9, r * 0.36);
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.12));
+    circle(st.x, st.y - r * 0.62, r * 0.3, art.done, art.edge, 2);
+    if (st.done) obDrawDone(st, r);
+  },
+  /* one long trunk to balance along */
+  logcross(st, i) {
+    const { art, r } = obStationBase(st, i);
+    rrect(st.x - r * 1.1, st.y - r * 0.26, r * 2.2, r * 0.52, r * 0.26);
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.11));
+    if (st.done) obDrawDone(st, r);
+  },
+  /* stepped shelves of rock, each higher than the last */
+  ledges(st, i) {
+    const { art, r } = obStationBase(st, i);
+    rrect(st.x - r * 1.05, st.y - r * 0.34, r * 2.1, r * 0.68, r * 0.16);
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.12));
+    gctx.save(); gctx.globalAlpha = 0.45;
+    rrect(st.x - r * 1.05, st.y - r * 0.34, r * 2.1, r * 0.2, r * 0.1);
+    fillStroke('#FFFDF4', null);
+    gctx.restore(); gctx.globalAlpha = 1;
+    if (st.done) obDrawDone(st, r);
+  },
+  /* planks slung between two ropes */
+  ropebridge(st, i) {
+    const { art, r } = obStationBase(st, i);
+    rrect(st.x - r * 0.72, st.y - r * 0.2, r * 1.44, r * 0.4, r * 0.1);
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2, r * 0.1));
+    gctx.strokeStyle = art.edge;
+    gctx.lineWidth = Math.max(1.6, r * 0.08);
+    [-1, 1].forEach((s) => {
+      gctx.beginPath();
+      gctx.moveTo(st.x + s * r * 0.72, st.y - r * 0.2);
+      gctx.lineTo(st.x + s * r * 0.72, st.y - r * 1.25);
+      gctx.stroke();
+    });
+    if (st.done) obDrawDone(st, r);
+  },
+  /* two cliff edges with nothing in between */
+  gap(st, i) {
+    const { art, r } = obStationBase(st, i);
+    const lip = i === 0 ? 1 : -1;
+    gctx.beginPath();
+    gctx.moveTo(st.x + lip * r * 1.4, st.y - r * 0.8);
+    gctx.lineTo(st.x - lip * r * 0.2, st.y - r * 0.5);
+    gctx.lineTo(st.x - lip * r * 0.1, st.y + r * 1.6);
+    gctx.lineTo(st.x + lip * r * 1.4, st.y + r * 1.6);
+    gctx.closePath();
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.12));
+    if (st.done) obDrawDone(st, r);
+  },
+  /* a bridge missing its planks */
+  bridge(st, i) {
+    const { art, r } = obStationBase(st, i);
+    gctx.strokeStyle = art.edge;
+    gctx.lineWidth = Math.max(2.4, r * 0.12);
+    gctx.beginPath();                              // the empty post
+    gctx.moveTo(st.x, st.y + r * 1.5);
+    gctx.lineTo(st.x, st.y - r * 0.2);
+    gctx.stroke();
+    if (st.done) {
+      rrect(st.x - r * 0.85, st.y - r * 0.3, r * 1.7, r * 0.42, r * 0.1);
+      fillStroke(art.done, art.doneEdge, Math.max(2, r * 0.1));
+      obDrawDone(st, r);
+    } else {
+      gctx.save(); gctx.globalAlpha = 0.35;
+      rrect(st.x - r * 0.85, st.y - r * 0.3, r * 1.7, r * 0.42, r * 0.1);
+      fillStroke(null, art.edge, Math.max(1.6, r * 0.07));
+      gctx.restore(); gctx.globalAlpha = 1;
+    }
+  },
+  /* iron bolts on a gate */
+  gate(st, i) {
+    const { art, r } = obStationBase(st, i);
+    rrect(st.x - r * 0.5, st.y - r * 1.1, r, r * 2.2, r * 0.18);
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.12));
+    circle(st.x, st.y, r * 0.3, st.done ? art.doneEdge : art.edge, null);
+    if (st.done) obDrawDone(st, r);
+  },
+  /* rings to jump through */
+  hoops(st, i) {
+    const { art, r } = obStationBase(st, i);
+    gctx.save();
+    gctx.lineWidth = Math.max(4, r * 0.24);
+    gctx.strokeStyle = st.done ? art.doneEdge : art.edge;
+    gctx.beginPath();
+    gctx.ellipse(st.x, st.y, r * 0.9, r * 1.15, 0, 0, TAU);
+    gctx.stroke();
+    gctx.globalAlpha = 0.28;
+    gctx.fillStyle = st.done ? art.done : art.fill;
+    gctx.fill();
+    gctx.restore(); gctx.globalAlpha = 1;
+    if (st.done) obDrawDone(st, r);
+  },
+  /* low branches to duck under */
+  branches(st, i) {
+    const { art, r } = obStationBase(st, i);
+    gctx.strokeStyle = st.done ? art.doneEdge : art.edge;
+    gctx.lineWidth = Math.max(3, r * 0.16);
+    gctx.lineCap = 'round';
+    gctx.beginPath();
+    gctx.moveTo(st.x - r * 1.2, st.y - r * 0.5);
+    gctx.quadraticCurveTo(st.x, st.y + r * 0.3, st.x + r * 1.2, st.y - r * 0.4);
+    gctx.stroke();
+    for (let k = -1; k <= 1; k++) {
+      ellipse(st.x + k * r * 0.55, st.y + r * 0.1, r * 0.3, r * 0.16,
+              st.done ? art.done : art.fill, null, 0, k * 0.4);
+    }
+    if (st.done) obDrawDone(st, r);
+  },
+  /* a hanging vine */
+  vine(st, i) {
+    const { art, r } = obStationBase(st, i);
+    const sway = Math.sin(tick / 15 + i) * r * 0.3;
+    gctx.strokeStyle = st.done ? art.doneEdge : art.edge;
+    gctx.lineWidth = Math.max(3, r * 0.15);
+    gctx.beginPath();
+    gctx.moveTo(st.x, st.y - r * 2.4);
+    gctx.quadraticCurveTo(st.x + sway, st.y - r, st.x + sway, st.y);
+    gctx.stroke();
+    circle(st.x + sway, st.y, r * 0.34, st.done ? art.done : art.fill, art.edge, 2);
+    if (st.done) obDrawDone(st, r);
+  },
+  /* sand ridges */
+  dunes(st, i) {
+    const { art, r } = obStationBase(st, i);
+    gctx.beginPath();
+    gctx.moveTo(st.x - r * 1.3, st.y + r * 0.6);
+    gctx.quadraticCurveTo(st.x, st.y - r * 0.9, st.x + r * 1.3, st.y + r * 0.6);
+    gctx.closePath();
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2.4, r * 0.11));
+    if (st.done) obDrawDone(st, r);
+  },
+  /* a narrow gap between two walls */
+  squeeze(st, i) {
+    const { art, r } = obStationBase(st, i);
+    [-1, 1].forEach((s) => {
+      gctx.beginPath();
+      gctx.moveTo(st.x + s * r * 0.36, st.y - r * 1.3);
+      gctx.lineTo(st.x + s * r * 1.3, st.y - r * 1.5);
+      gctx.lineTo(st.x + s * r * 1.3, st.y + r * 1.5);
+      gctx.lineTo(st.x + s * r * 0.36, st.y + r * 1.3);
+      gctx.closePath();
+      fillStroke(st.done ? art.done : art.fill,
+                 st.done ? art.doneEdge : art.edge, Math.max(2.4, r * 0.11));
+    });
+    if (st.done) obDrawDone(st, r);
+  },
+  /* a thorn hedge with gaps */
+  hedge(st, i) {
+    const { art, r } = obStationBase(st, i);
+    rrect(st.x - r * 0.9, st.y - r * 1.0, r * 1.8, r * 2.0, r * 0.4);
+    fillStroke(st.done ? art.done : art.fill,
+               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.12));
+    gctx.strokeStyle = art.edge;
+    gctx.lineWidth = Math.max(1.4, r * 0.06);
+    for (let k = 0; k < 5; k++) {
+      const a = -Math.PI / 2 + (k - 2) * 0.35;
+      gctx.beginPath();
+      gctx.moveTo(st.x, st.y);
+      gctx.lineTo(st.x + Math.cos(a) * r * 0.85, st.y + Math.sin(a) * r * 0.95);
+      gctx.stroke();
+    }
+    if (st.done) obDrawDone(st, r);
+  },
+};
+
+function drawObstacle() {
+  if (!obState.stations.length) return;
+  const visual = obState.visual;
+  const painter = OB_PAINTER[visual] || OB_PAINTER.stones;
+  // a link line, except where the obstacle is literally a void
+  if (visual !== 'gap' && visual !== 'squeeze') obLinkPath(true);
+
+  obState.stations.forEach((st, i) => {
+    if (st.pop > 0) st.pop = Math.max(0, st.pop - 0.04);
+    painter(st, i);
+    obActionCue(st, st.r);
+    // "go here" chevron, only once the crossing is open
+    if (obState.active && !obState.locked && i === obState.at && !st.done
+        && !st.armed) {
+      const bob = Math.sin(tick / 9) * st.r * 0.16;
+      gctx.strokeStyle = '#FFF8EE';
+      gctx.lineWidth = Math.max(3, st.r * 0.16);
+      gctx.lineCap = 'round'; gctx.lineJoin = 'round';
+      gctx.beginPath();
+      gctx.moveTo(st.x - st.r * 0.42, st.y - st.r * 1.5 + bob);
+      gctx.lineTo(st.x, st.y - st.r * 1.05 + bob);
+      gctx.lineTo(st.x + st.r * 0.42, st.y - st.r * 1.5 + bob);
+      gctx.stroke();
+    }
+  });
+
+  // While the question is still unanswered the crossing is visibly SHUT.
+  if (obState.locked) {
+    gctx.save();
+    gctx.globalAlpha = 0.34;
+    gctx.fillStyle = '#4a3b52';
+    obState.stations.forEach((st) => {
+      circle(st.x, st.y, st.r * 1.5, '#4a3b52', null);
+    });
+    gctx.restore();
+    gctx.globalAlpha = 1;
+    const first = obState.stations[0];
+    if (first) {
+      const bob = Math.sin(tick / 13) * 3;
+      gctx.save();
+      gctx.font = `700 ${Math.round(clamp(W / 46, 15, 26))}px 'Baloo 2', sans-serif`;
+      gctx.textAlign = 'center';
+      gctx.textBaseline = 'middle';
+      gctx.fillStyle = 'rgba(255,248,238,.95)';
+      gctx.shadowColor = 'rgba(74,59,82,.7)';
+      gctx.shadowBlur = 8;
+      gctx.fillText('🔒 Answer to open the way',
+                    W / 2, play.top + 26 + bob);
+      gctx.restore();
+    }
+  }
+}
+
+/* ── legacy aliases ───────────────────────────────────────────────────
+   The V3 build called these; keeping the names means a stale cached
+   bundle degrades to something sensible rather than throwing. */
+const walkState = obState;
+function layoutWalk() { layoutObstacle(); }
+function skipWalk() { skipObstacle(); }
+function drawWalkTrack() { drawObstacle(); }
+function updateWalk() { updateObstacle(); }
+function walkClickAt(cx, cy) { return obstacleClickAt(cx, cy); }
+function nudgeWalk() {
+  const st = obState.stations[obState.at];
+  if (st) nudgeToStation(st);
+}
+
+/* The question is revealed as soon as the beat opens — it is the KEY, not
+   the reward. */
 function revealQuestion() {
   showQuestionBox(true);
   readChallengeAloud();
   const c = state.challenge || {};
   if (c.question_type === 'free_response') focusTypein();
-}
-
-function skipWalk() {
-  if (!walkState.active) return;
-  walkState.nodes.forEach((nd) => { nd.hit = true; });
-  walkState.at = walkState.nodes.length;
-  renderWalkBand();
-  finishWalk();
-}
-
-/* Movement. Only runs while the walk is live, so a child can still roam
-   the scene afterwards without accidentally re-triggering anything. */
-function updateWalk() {
-  if (!walkState.active) return;
-  const hx = hero.x + hero.w / 2;
-  const hy = hero.y + hero.h / 2;
-  // Nodes may be taken slightly out of order (a long jump lands two along)
-  // but never backwards, and never ahead of one still untouched.
-  for (let i = 0; i < walkState.nodes.length; i++) {
-    const node = walkState.nodes[i];
-    if (node.hit) continue;
-    if (i > walkState.at) break;
-    if (Math.hypot(hx - node.x, hy - node.y) < node.r * WALK_REACH + hero.w * 0.42) {
-      hitWalkNode(i);
-    }
-    break;
-  }
-}
-
-/* Tapping the next node walks to it. */
-function walkClickAt(cx, cy) {
-  if (!walkState.active) return false;
-  for (let i = 0; i < walkState.nodes.length; i++) {
-    const node = walkState.nodes[i];
-    if (node.hit) continue;
-    if (Math.hypot(cx - node.x, cy - node.y) < node.r * 2.2) {
-      hero.x = clamp(node.x - hero.w / 2, 0, W - hero.w);
-      hero.y = clamp(node.y - hero.h / 2, play.top - 20, play.bottom - hero.h);
-      hitWalkNode(i);
-      return true;
-    }
-    break;
-  }
-  return false;
-}
-
-/* The track, painted into the middle band — between the two zones, so it
-   is always fully visible and never under the question. */
-const WALK_ART = {
-  stones: { fill: '#D9CDB6', edge: '#9B8768', done: '#CFE6CB', doneEdge: '#6BA36A' },
-  ledge:  { fill: '#CBB59A', edge: '#8A7254', done: '#F8D2BF', doneEdge: '#F0965B' },
-  log:    { fill: '#C9A277', edge: '#8A6440', done: '#E6D2A8', doneEdge: '#E0913A' },
-  gate:   { fill: '#CDD8E4', edge: '#5A6C88', done: '#CFE4F6', doneEdge: '#3E85BE' },
-  reeds:  { fill: '#D2DFBB', edge: '#7E9B4E', done: '#DDE7C8', doneEdge: '#6BA36A' },
-  path:   { fill: '#DBCDB4', edge: '#9B8768', done: '#FBE7B4', doneEdge: '#E0913A' },
-};
-
-function drawWalkTrack() {
-  if (!walkState.active && !walkState.nodes.length) return;
-  const art = WALK_ART[(walkState.spec && walkState.spec.kind) || 'path'] || WALK_ART.path;
-
-  // the dotted line of intent, from node to node
-  gctx.save();
-  gctx.strokeStyle = 'rgba(255,248,238,.55)';
-  gctx.lineWidth = Math.max(2, W / 420);
-  gctx.setLineDash([Math.max(6, W / 150), Math.max(8, W / 110)]);
-  gctx.lineDashOffset = -tick * 0.7;
-  gctx.beginPath();
-  walkState.nodes.forEach((nd, i) => {
-    if (i === 0) gctx.moveTo(nd.x, nd.y); else gctx.lineTo(nd.x, nd.y);
-  });
-  gctx.stroke();
-  gctx.restore();
-  gctx.setLineDash([]);
-
-  walkState.nodes.forEach((nd, i) => {
-    if (nd.pop > 0) nd.pop = Math.max(0, nd.pop - 0.04);
-    const next = walkState.active && i === walkState.at && !nd.hit;
-    const r = nd.r * (1 + nd.pop * 0.25);
-    groundShadow(nd.x, nd.y + r * 0.82, r * 0.9, Math.max(4, r * 0.28), 0.2);
-    if (next) {
-      const pulse = 0.5 + 0.5 * Math.sin(tick / 11);
-      glowAt(nd.x, nd.y, r * (2.1 + pulse * 0.5),
-             `rgba(244,211,114,${0.26 + pulse * 0.18})`, 'rgba(244,211,114,0)');
-    }
-    gctx.beginPath();
-    gctx.ellipse(nd.x, nd.y, r, r * 0.74, 0, 0, TAU);
-    fillStroke(vGrad(nd.y - r, nd.y + r, nd.hit ? art.done : art.fill,
-                     darken(nd.hit ? art.done : art.fill, 0.84)),
-               nd.hit ? art.doneEdge : art.edge, Math.max(2.5, r * 0.13));
-    gctx.save();
-    gctx.globalAlpha = 0.5;
-    ellipse(nd.x - r * 0.2, nd.y - r * 0.3, r * 0.42, r * 0.16, '#FFFDF4', null, 0, -0.3);
-    gctx.restore();
-    gctx.globalAlpha = 1;
-    if (nd.hit) {
-      gctx.fillStyle = art.doneEdge;
-      gctx.font = `800 ${Math.round(r * 0.9)}px 'Baloo 2', sans-serif`;
-      gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-      gctx.fillText('✓', nd.x, nd.y);
-    } else if (next) {
-      // a little bouncing chevron: GO HERE
-      const bob = Math.sin(tick / 9) * r * 0.16;
-      gctx.strokeStyle = '#FFF8EE';
-      gctx.lineWidth = Math.max(3, r * 0.16);
-      gctx.lineCap = 'round'; gctx.lineJoin = 'round';
-      gctx.beginPath();
-      gctx.moveTo(nd.x - r * 0.42, nd.y - r * 1.5 + bob);
-      gctx.lineTo(nd.x, nd.y - r * 1.05 + bob);
-      gctx.lineTo(nd.x + r * 0.42, nd.y - r * 1.5 + bob);
-      gctx.stroke();
-    }
-  });
 }
 
 /* ═══════════ 8c. ★ FREE RESPONSE — typed answers ★ ═══════════
@@ -1737,22 +2210,29 @@ function applyChallenge(challenge, stats) {
   renderAnswerTray();          // ★ the answers are DOM cards, not painted blobs
   renderSelected();
 
-  /* ── ★ MOVEMENT GATES THE QUESTION ★ ──
-     The question box stays hidden until the hero has walked the traversal.
-     No traversal in the payload (an older server) → show it immediately,
-     so the game degrades to exactly what it used to be. */
-  const tv = challenge.traversal;
-  if (tv && num(tv.steps, 0) >= 1) {
-    startTraversal(tv, !interlude);
+  /* ── ★ THE QUESTION IS THE KEY ★ ──
+     The obstacle is painted straight away and the hero stands in front of
+     it, visibly SHUT. The question appears at once, because answering it is
+     what opens the way. An interlude has no question, so its crossing opens
+     immediately. No obstacle in the payload (an older server) → the question
+     shows and the beat behaves exactly as it used to. */
+  const ob = challenge.obstacle || challenge.traversal;
+  if (ob && num(ob.steps, 0) >= 1) {
+    prepareObstacle(ob, !interlude);
+    const locked = firstStr(field(ob, 'locked_text'));
+    if (locked) showNarration(locked, firstStr(field(ob, 'title'), 'The way is blocked'));
+    if (interlude) unlockObstacle('win');
+    else revealQuestion();
   } else {
-    walkState.active = false;
-    walkState.nodes = [];
+    obState.active = false;
+    obState.locked = false;
+    obState.stations = [];
     const band = $('walk-band');
     if (band) band.hidden = true;
     hero.x = clamp(W * 0.06, 8, W - hero.w - 8);
     hero.y = clamp(play.bottom - hero.h - 14, play.top, H - hero.h);
     hero.face = 1;
-    if (interlude) setTimeout(() => { if (!state.locked) nextChallenge(); }, 900);
+    if (interlude) setTimeout(nextChallenge, 900);
     else revealQuestion();
   }
 }
@@ -2383,10 +2863,14 @@ window.addEventListener('keydown', (e) => {
   if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
   if (state.locked) return;
   if (e.key === 'Enter' && typeinActive()) { focusTypein(); return; }
-  // While walking, Space is a nudge onward rather than a submit - there is
-  // nothing to submit yet, and a five-year-old WILL hit it.
+
+  /* ★ The crossing owns its action key while it is live. A press that is
+     mistimed or simply wrong does nothing at all — no penalty, no fail
+     state. See obstacleAction(). */
+  if (obState.active && !obState.locked && obstacleAction(e.key)) return;
+
   if (e.key === ' ') {
-    if (walkState.active) nudgeWalk();
+    if (obState.active) nudgeWalk();
     else if (!typeinActive()) submitAnswer();
   }
 });
@@ -2409,7 +2893,7 @@ function nudgeWalk() {
 
 /* Tap the next node to move onto it — the touch path for the traversal. */
 gc.addEventListener('pointerdown', (e) => {
-  if (!walkState.active) return;
+  if (!obState.active || obState.locked) return;
   const r = gc.getBoundingClientRect();
   if (!(r.width > 0) || !(r.height > 0)) return;
   const cx = (e.clientX - r.left) * (W / r.width);
@@ -2417,7 +2901,7 @@ gc.addEventListener('pointerdown', (e) => {
   walkClickAt(cx, cy);
 });
 
-$('btn-walk-skip').addEventListener('click', () => { skipWalk(); });
+$('btn-walk-skip').addEventListener('click', () => { skipObstacle(); });
 
 $('typein').addEventListener('submit', (e) => { e.preventDefault(); submitTypein(); });
 $('typein-submit').addEventListener('click', (e) => { e.preventDefault(); submitTypein(); });
@@ -2743,11 +3227,16 @@ async function submitAnswer(typed) {
     const beat = state.challenge && state.challenge.beat;
     const outro = data.beat_result || (beat && beat.on_success) || '';
     if (data.correct && outro) {
-      // The "And then…" line floats up to the ribbon and STAYS there while
-      // the next question is walked to and answered — it is not a flash
-      // card any more.
       setTimeout(() => showNarration(outro, data.is_final_beat ? 'At last' : 'And then…'), 700);
-      setTimeout(nextChallenge, 3600);
+    }
+
+    /* ★ THE PAYOFF ★ — the answer unlocks the crossing, and the child now
+       performs it. A wrong answer still opens the way (the quest never dead
+       ends, and the level adapts downward instead) — it just arrives with a
+       gentler line and the worked answer already on screen. */
+    if (obState.stations.length) {
+      setTimeout(() => unlockObstacle(data.correct ? 'win' : 'retry'),
+                 data.correct ? 1200 : 2600);
     } else {
       setTimeout(nextChallenge, data.correct ? 2000 : 3400);
     }
@@ -4328,14 +4817,14 @@ function draw() {
 
   props.forEach(drawProp);
 
-  /* ★ The traversal. While it is live it owns the middle band entirely:
-     no stones, no answers, just the way across. */
-  if (walkState.nodes.length) drawWalkTrack();
+  /* ★ The obstacle. Painted from the moment the beat opens — shut and
+     greyed while the question is unanswered, lit and crossable after. */
+  if (obState.stations.length) drawObstacle();
 
   /* ★ The answers are DOM cards now. The canvas only paints them where
-     the SPACE is the puzzle — a path to walk, fraction islands in a
-     river. Everywhere else the picture stays a picture. */
-  if (!walkState.active && canvasStoneMode() !== 'none') {
+     the SPACE is the puzzle — fraction sandbars in a river. Everywhere
+     else the picture stays a picture. */
+  if (!obState.active && canvasStoneMode() !== 'none') {
     sandbars.forEach(drawSandbar);
     drawRopeTrail();
     stones.forEach(drawStone);

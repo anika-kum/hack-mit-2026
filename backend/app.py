@@ -570,7 +570,10 @@ def parse_typed_number(raw) -> float | None:
     if fraction is not None:
         return fraction
 
-    for junk in ("=", "cents", "cent", "km/h", "km", "cm", "m", "l", "$", "c", ","):
+    # Longest first: "km/h" must be eaten before "km", and "hours" before "h".
+    for junk in ("=", "cents", "cent", "degrees", "degree", "hours", "hour",
+                 "litres", "litre", "km/h", "kmh", "km", "cm", "mm",
+                 "m", "l", "h", "$", "c", ","):
         text = text.replace(junk, " ")
     text = text.replace(" ", "")
     if text in ("", "-", ".", "-."):

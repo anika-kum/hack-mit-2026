@@ -705,56 +705,49 @@ INTERLUDE_PROSE = {
 # always the biggest thing we have at the climax.
 
 OBSTACLES = {
+    # ---------------------------------------------------------- WATER
     "stones": {
-        "action": "hop", "drama": 1, "title": "The Stepping Stones",
-        "noun": "stepping stone",
-        "blocked": "Fast water, and a line of flat stones across it. "
-                   "{char} tests the first one with a toe.",
-        "cleared": "Stone to stone to stone - and {char} is across, "
-                   "with dry paws and a very smug face.",
-        "hint": "Press → to hop from stone to stone",
-        "keys": ["→"], "steps": 4,
-    },
-    "hurdle": {
-        "action": "hurdle", "drama": 2, "title": "The Fallen Logs",
-        "noun": "log",
-        "blocked": "Storm-felled trunks lie across the path, one after "
-                   "another, each too high to step over.",
-        "cleared": "Up and over, up and over. {char} lands running.",
-        "hint": "Run with →, then SPACE to vault each log",
-        "keys": ["→", "SPACE"], "steps": 3,
-    },
-    "gate": {
-        "action": "unlock", "drama": 2, "title": "The Locked Gate",
-        "noun": "bolt",
-        "blocked": "An iron gate, taller than {char}, with three heavy bolts "
-                   "and not a gap anywhere in the wall beside it.",
-        "cleared": "The last bolt grinds back and the gate swings wide.",
-        "hint": "Press SPACE to throw each bolt, then → to walk through",
-        "keys": ["SPACE", "→"], "steps": 3,
+        "terrain": ("water",), "action": "hop", "drama": 1, "visual": "stones",
+        "title": "The Stepping Stones", "noun": "stepping stone",
+        "blocked": "Fast water, and a line of flat stones across it. {char} "
+                   "tests the first one with a toe.",
+        "cleared": "Stone to stone to stone - and {char} is across, with dry "
+                   "paws and a very smug face.",
+        "hint": "Walk onto each stone with the arrow keys",
+        "keys": ["←", "↑", "↓", "→"], "steps": 4,
     },
     "ford": {
-        "action": "ford", "drama": 2, "title": "The Rushing Ford",
-        "noun": "step",
-        "blocked": "The water is shallow enough to wade - and fast enough to "
-                   "take {char}'s feet out from under them.",
+        "terrain": ("water",), "action": "ford", "drama": 2, "visual": "water",
+        "title": "The Rushing Ford", "noun": "step",
+        "blocked": "Shallow enough to wade, and quick enough to take {char}'s "
+                   "feet out from under them.",
         "cleared": "Soaked to the middle, but across. {char} shakes like a dog.",
         "hint": "Hold → to push against the current",
         "keys": ["→"], "steps": 5,
     },
-    "ledges": {
-        "action": "climb", "drama": 3, "title": "The Cliff Ledges",
-        "noun": "ledge",
-        "blocked": "The cliff goes up and up. There are ledges - narrow ones, "
-                   "a good stretch apart - and no other way on.",
-        "cleared": "{char} hauls over the last lip and lies flat a moment, "
-                   "looking at how far down the world has gone.",
-        "hint": "Press ↑ to pull up to the next ledge",
-        "keys": ["↑"], "steps": 4,
+    "boat": {
+        "terrain": ("water",), "action": "pole", "drama": 3, "visual": "boat",
+        "title": "The Little Boat", "noun": "push",
+        "blocked": "Too deep to wade and too wide to jump - but there is a "
+                   "flat-bottomed boat pulled up in the reeds, and a pole.",
+        "cleared": "{char} poles out, wobbles horribly, and grounds the boat "
+                   "on the far bank with a crunch.",
+        "hint": "Press SPACE to push off the bottom, → to steer",
+        "keys": ["SPACE", "→"], "steps": 4,
+    },
+    "log_cross": {
+        "terrain": ("water", "wood"), "action": "balance", "drama": 2,
+        "visual": "logcross", "title": "The Fallen Log", "noun": "step",
+        "blocked": "One old trunk lies right across the water, slick with "
+                   "moss and no wider than {char}'s two feet together.",
+        "cleared": "Arms out, one foot in front of the other, and over. "
+                   "{char} does not look down once.",
+        "hint": "Step along the log with → (↑ ↓ to keep your balance)",
+        "keys": ["→", "↑", "↓"], "steps": 4,
     },
     "bridge": {
-        "action": "rebuild", "drama": 3, "title": "The Collapsed Bridge",
-        "noun": "plank",
+        "terrain": ("water", "height"), "action": "rebuild", "drama": 3,
+        "visual": "bridge", "title": "The Collapsed Bridge", "noun": "plank",
         "blocked": "The bridge is a row of empty posts and a long drop. The "
                    "planks are all here - just not where they should be.",
         "cleared": "Plank by plank it comes back together, and {char} walks "
@@ -762,30 +755,31 @@ OBSTACLES = {
         "hint": "Press SPACE to lay each plank, then → to cross",
         "keys": ["SPACE", "→"], "steps": 4,
     },
-    "hoops": {
-        "action": "hoop", "drama": 3, "title": "The Ring of Hoops",
-        "noun": "hoop",
-        "blocked": "Great burning hoops hang in a line over the gorge, "
-                   "turning slowly. The only way on goes straight through "
-                   "the middle of them.",
-        "cleared": "Through the middle of every one, clean as anything. "
-                   "{char} lands to a sound like applause.",
-        "hint": "Press SPACE to jump through each hoop",
-        "keys": ["SPACE"], "steps": 4,
+    # --------------------------------------------------------- HEIGHT
+    "ledges": {
+        "terrain": ("height", "coast", "cave"), "action": "climb", "drama": 3,
+        "visual": "ledges", "title": "The Cliff Ledges", "noun": "ledge",
+        "blocked": "The cliff goes up and up. There are ledges - narrow ones, "
+                   "a good stretch apart - and no other way on.",
+        "cleared": "{char} hauls over the last lip and lies flat a moment, "
+                   "looking at how far down the world has gone.",
+        "hint": "Press ↑ to pull up to the next ledge",
+        "keys": ["↑"], "steps": 4,
     },
-    "swing": {
-        "action": "swing", "drama": 4, "title": "The Rope Swing",
-        "noun": "swing",
-        "blocked": "A single rope hangs over the gap, swinging gently, well "
-                   "out of reach of anyone standing still.",
-        "cleared": "{char} sails across with both feet out, whooping, and "
-                   "lands in a heap of leaves.",
-        "hint": "Press SPACE to grab the rope, → to swing across",
-        "keys": ["SPACE", "→"], "steps": 3,
+    "rope_bridge": {
+        "terrain": ("height",), "action": "cross", "drama": 4,
+        "visual": "ropebridge", "title": "The Swaying Rope Bridge",
+        "noun": "board",
+        "blocked": "Two ropes, a handful of boards, and an awful lot of air "
+                   "underneath. The whole thing moves in the wind.",
+        "cleared": "{char} steps off onto solid rock and lets go of the rope "
+                   "one finger at a time.",
+        "hint": "Press → for each board (↑ ↓ to steady yourself)",
+        "keys": ["→", "↑", "↓"], "steps": 5,
     },
     "chasm": {
-        "action": "leap", "drama": 5, "title": "The Chasm",
-        "noun": "leap",
+        "terrain": ("height", "arid"), "action": "leap", "drama": 5,
+        "visual": "gap", "title": "The Chasm", "noun": "leap",
         "blocked": "The ground simply stops. A chasm, wider than {char} is "
                    "brave, and the far edge waiting on the other side.",
         "cleared": "{char} hangs in the air for one enormous heartbeat - and "
@@ -793,48 +787,258 @@ OBSTACLES = {
         "hint": "Hold → to run up, then SPACE to LEAP",
         "keys": ["→", "SPACE"], "steps": 2,
     },
+    # ----------------------------------------------------------- WOOD
+    "hurdle": {
+        "terrain": ("wood", "open"), "action": "hurdle", "drama": 2,
+        "visual": "logs", "title": "The Fallen Logs", "noun": "log",
+        "blocked": "Storm-felled trunks lie across the path, one after "
+                   "another, each too high to step over.",
+        "cleared": "Up and over, up and over. {char} lands running.",
+        "hint": "Run with →, then SPACE to vault each log",
+        "keys": ["→", "SPACE"], "steps": 3,
+    },
+    "branches": {
+        "terrain": ("wood",), "action": "duck", "drama": 2, "visual": "branches",
+        "title": "The Low Branches", "noun": "branch",
+        "blocked": "The way on is a tunnel of branches, every one of them at "
+                   "exactly {char}'s eye height.",
+        "cleared": "{char} comes out the far end with leaves in both ears and "
+                   "an entirely straight face.",
+        "hint": "Press ↓ to duck under each branch, → to go on",
+        "keys": ["↓", "→"], "steps": 4,
+    },
+    "vine": {
+        "terrain": ("wood",), "action": "swing", "drama": 4, "visual": "vine",
+        "title": "The Hanging Vine", "noun": "swing",
+        "blocked": "A single vine hangs over the gap, swinging gently, well "
+                   "out of reach of anyone standing still.",
+        "cleared": "{char} sails across with both feet out, whooping, and "
+                   "lands in a heap of leaves.",
+        "hint": "Press SPACE to grab the vine, → to swing across",
+        "keys": ["SPACE", "→"], "steps": 3,
+    },
+    # ---------------------------------------------------------- COAST
+    "tide_pool": {
+        "terrain": ("coast",), "action": "wade", "drama": 2, "visual": "water",
+        "title": "The Tide Pool", "noun": "step",
+        "blocked": "A wide cold pool left behind by the tide, full of things "
+                   "with more legs than {char} is comfortable with.",
+        "cleared": "Across, with wet knees and one small crab as a passenger.",
+        "hint": "Wade across with the arrow keys",
+        "keys": ["←", "↑", "↓", "→"], "steps": 4,
+    },
+    "sea_rocks": {
+        "terrain": ("coast",), "action": "scramble", "drama": 3,
+        "visual": "rocks", "title": "The Black Rocks", "noun": "rock",
+        "blocked": "Great wet slabs of rock, tilted every way, with the sea "
+                   "banging away underneath them.",
+        "cleared": "{char} picks the last gap, jumps it, and is on sand again.",
+        "hint": "Pick your way across with the arrow keys, SPACE to jump a gap",
+        "keys": ["←", "↑", "↓", "→", "SPACE"], "steps": 5,
+    },
+    # ----------------------------------------------------------- ARID
+    "dunes": {
+        "terrain": ("arid",), "action": "trudge", "drama": 2, "visual": "dunes",
+        "title": "The Dunes", "noun": "dune",
+        "blocked": "Sand, and then more sand, heaped into ridges that slide "
+                   "backwards under every step.",
+        "cleared": "{char} crests the last ridge and there, finally, is the "
+                   "way on.",
+        "hint": "Push up each dune with ↑ and →",
+        "keys": ["↑", "→"], "steps": 5,
+    },
+    # ----------------------------------------------------------- CAVE
+    "squeeze": {
+        "terrain": ("cave",), "action": "squeeze", "drama": 2,
+        "visual": "squeeze", "title": "The Narrow Gap", "noun": "squeeze",
+        "blocked": "The passage pinches down to a crack you could post a "
+                   "letter through. It is the only way on.",
+        "cleared": "{char} pops out the far side like a cork, covered in dust.",
+        "hint": "Press → to wriggle through, ↓ to flatten yourself",
+        "keys": ["→", "↓"], "steps": 4,
+    },
+    "under_stream": {
+        "terrain": ("cave",), "action": "wade", "drama": 3,
+        "visual": "water", "title": "The Underground Stream", "noun": "step",
+        "blocked": "Black water runs across the cave floor, and there is no "
+                   "telling how deep it goes.",
+        "cleared": "Knee deep, then ankle deep, then out. Colder than {char} "
+                   "expected and twice as exciting.",
+        "hint": "Feel your way across with the arrow keys",
+        "keys": ["←", "↑", "↓", "→"], "steps": 4,
+    },
+    # ----------------------------------------------------------- OPEN
+    "gate": {
+        "terrain": ("open", "wood", "height"), "action": "unlock", "drama": 2,
+        "visual": "gate", "title": "The Locked Gate", "noun": "bolt",
+        "blocked": "An iron gate, taller than {char}, with three heavy bolts "
+                   "and not a gap anywhere in the wall beside it.",
+        "cleared": "The last bolt grinds back and the gate swings wide.",
+        "hint": "Press SPACE to throw each bolt, then → to walk through",
+        "keys": ["SPACE", "→"], "steps": 3,
+    },
+    "hoops": {
+        "terrain": ("open", "arid"), "action": "hoop", "drama": 3,
+        "visual": "hoops", "title": "The Ring of Hoops", "noun": "hoop",
+        "blocked": "Great hoops hang in a line above the path, turning "
+                   "slowly. The way on goes straight through the middle.",
+        "cleared": "Through the middle of every one, clean as anything. "
+                   "{char} lands to a sound like applause.",
+        "hint": "Line up with ↑ ↓, then SPACE to jump through each hoop",
+        "keys": ["↑", "↓", "SPACE"], "steps": 4,
+    },
+    "hedge": {
+        "terrain": ("open", "wood"), "action": "hurdle", "drama": 2,
+        "visual": "hedge", "title": "The Thorn Hedge", "noun": "gap",
+        "blocked": "A hedge twice {char}'s height, thorns the size of "
+                   "fingernails, running as far as either eye can see.",
+        "cleared": "One gap, one wriggle, one small tear in one ear. Through.",
+        "hint": "Find the gaps with ↑ ↓, then → to push through",
+        "keys": ["↑", "↓", "→"], "steps": 4,
+    },
 }
 
-# Stable order so obstacle choice is deterministic given a seed.
-OBSTACLE_ORDER = ("stones", "hurdle", "gate", "ford", "ledges", "bridge",
-                  "swing", "chasm")
 
-# The easiest thing we have, for the arrival beat and for any fallback.
+# ----------------------------------------------------- setting -> terrain
+#
+# 2026-09-19c, from the playtest: "i dont see the different obstacle types???
+# like they should be part of river if ur in a river u should take a boat or
+# jump over a pond or something like cool!!!!"
+#
+# Obstacles are chosen from the CHILD'S OWN WORLD, not from one generic list.
+# A rope bridge belongs on a mountain; a boat belongs on a river; neither
+# belongs in an open meadow. The setting comes from the drawing the child
+# made (math_engine.pick_setting), so the obstacles are theirs too.
+
+SETTING_TERRAIN = {
+    "river": ("water", "wood"),
+    "lake": ("water", "coast"),
+    "ocean": ("coast", "water"),
+    "sea": ("coast", "water"),
+    "bridge": ("water", "height"),
+    "island": ("coast", "water"),
+    "cliff": ("height", "coast"),
+    "mountain": ("height", "arid"),
+    "volcano": ("height", "arid"),
+    "forest": ("wood", "open"),
+    "tree": ("wood", "open"),
+    "garden": ("wood", "open"),
+    "cave": ("cave", "height"),
+    "desert": ("arid", "open"),
+    "meadow": ("open", "wood"),
+    "field": ("open", "wood"),
+    "road": ("open", "wood"),
+    "house": ("open", "wood"),
+    "castle": ("open", "height"),
+    "cloud": ("height", "open"),
+}
+DEFAULT_TERRAIN = ("open", "wood")
+
+# Stable order so obstacle choice is deterministic given a seed.
+OBSTACLE_ORDER = tuple(sorted(OBSTACLES))
+
+# The gentlest thing we have, for any fallback.
 DEFAULT_OBSTACLE = "stones"
+
+
+def terrain_for_setting(setting: str, objects=()) -> tuple[str, ...]:
+    """Which terrain families this child's world is made of."""
+    key = (setting or "").lower().strip()
+    if key in SETTING_TERRAIN:
+        return SETTING_TERRAIN[key]
+    for obj in objects or []:
+        low = (obj or "").lower()
+        for name, terrain in SETTING_TERRAIN.items():
+            if name in low:
+                return terrain
+    return DEFAULT_TERRAIN
+
+
+def obstacles_for_setting(setting: str, objects=()) -> list[str]:
+    """Every obstacle that belongs in this world, best-fitting first.
+
+    Never returns fewer than three, so `assign_obstacles` always has room to
+    avoid repeating itself even in a world with a narrow terrain.
+    """
+    terrain = terrain_for_setting(setting, objects)
+    ranked = []
+    for kind in OBSTACLE_ORDER:
+        tags = OBSTACLES[kind].get("terrain", ())
+        for rank, want in enumerate(terrain):
+            if want in tags:
+                ranked.append((rank, kind))
+                break
+    out = [k for _r, k in sorted(ranked)]
+    if len(out) < 3:
+        # A world we do not recognise still gets a varied quest.
+        out += [k for k in OBSTACLE_ORDER if k not in out]
+    return out
 
 
 def obstacle_spec(kind: str) -> dict:
     return OBSTACLES.get(kind) or OBSTACLES[DEFAULT_OBSTACLE]
 
 
-def assign_obstacles(beats: list[dict], rng: random.Random) -> None:
-    """Hand every beat an obstacle: escalating, and never twice in a row.
+def assign_obstacles(beats: list[dict], rng: random.Random,
+                     setting: str = "", objects=()) -> None:
+    """Hand every beat an obstacle: in-world, escalating, never twice running.
 
-    Three rules, in order of how much they matter:
-      1. the climax gets the most dramatic obstacle in the set;
-      2. no two consecutive beats use the same obstacle (the old trail beat
-         was the same four blobs every single time, which is what made it
-         read as filler);
-      3. otherwise drama rises smoothly across the arc.
+    Four rules, in order of how much they matter:
+      1. every obstacle must BELONG in the child's world - no boats in a
+         meadow, no rope bridges in a garden;
+      2. the climax gets the most dramatic obstacle that world can offer;
+      3. no two consecutive beats use the same obstacle (the old trail beat
+         was the same four blobs every time, which is what made it filler);
+      4. otherwise drama rises smoothly across the arc.
     """
+    pool = obstacles_for_setting(setting, objects)
     n = max(1, len(beats))
+
+    # The climax is chosen FIRST and gets the most dramatic thing this world
+    # can offer. Chosen last, it kept losing the biggest obstacle to an
+    # earlier beat and the quest fizzled at the top.
+    climax = next((b for b in beats if b.get("finale")), None)
+    reserved = None
+    if climax is not None:
+        reserved = max(pool, key=lambda k: (OBSTACLES[k]["drama"], -rng.random()))
+        climax["obstacle"] = reserved
+
     previous = None
     for i, beat in enumerate(beats):
+        if beat is climax:
+            previous = beat["obstacle"]
+            continue
         t = i / max(1, n - 1)
         target = 1 + round(t * 4)
-        if beat.get("finale"):
-            target = 5
-        elif beat.get("kind") == "resolution":
+        if beat.get("kind") == "resolution":
             target = 1              # arriving home is not an assault course
         elif beat.get("helper"):
             target = 1              # a friend just turned up; keep it gentle
-        pool = [k for k in OBSTACLE_ORDER if k != previous] or list(OBSTACLE_ORDER)
+        # Avoid the previous obstacle, and avoid spending the climax's
+        # obstacle early - but never at the cost of having nothing to pick.
+        choices = [k for k in pool if k != previous and k != reserved]
+        choices = choices or [k for k in pool if k != previous] or list(pool)
         # nearest drama to the target; ties broken by the seeded rng, so the
         # same quest always plays the same obstacles.
-        pick = min(pool, key=lambda k: (abs(OBSTACLES[k]["drama"] - target),
-                                        rng.random()))
+        pick = min(choices, key=lambda k: (abs(OBSTACLES[k]["drama"] - target),
+                                           rng.random()))
         beat["obstacle"] = pick
         previous = pick
+
+    # The no-repeat rule is the one a child actually notices. Enforce it once
+    # more at the end, because reserving the climax can put two of a kind
+    # next to each other.
+    for i in range(1, len(beats)):
+        if beats[i]["obstacle"] != beats[i - 1]["obstacle"]:
+            continue
+        alt = [k for k in pool if k not in
+               (beats[i - 1]["obstacle"],
+                beats[i + 1]["obstacle"] if i + 1 < len(beats) else None)]
+        if alt:
+            want = OBSTACLES[beats[i]["obstacle"]]["drama"]
+            beats[i]["obstacle"] = min(
+                alt, key=lambda k: (abs(OBSTACLES[k]["drama"] - want), rng.random()))
+
 
 
 # Legacy: the V3 "walk to the question" vocabulary. Kept only so an older
@@ -1111,6 +1315,12 @@ def start_quest(topic: str, band: str, interpretation: dict, seed=None,
     for beat in beats:
         beat.setdefault("location", default_location(beat, scenery, goal_text))
 
+    # ★ THE OBSTACLES. Chosen from the child's OWN world (a boat on a river,
+    # ledges on a cliff), escalating across the arc, never the same twice in
+    # a row. Assigned here, after the arc is built, because which obstacle a
+    # stop deserves depends on where it lands in the finished quest.
+    assign_obstacles(beats, rng, setting, objects)
+
     return {
         "template_id": template_id,
         "title": title,
@@ -1291,6 +1501,12 @@ def obstacle_for(quest: dict, beat: dict, ctx: dict | None = None) -> dict:
     return {
         "kind": kind,
         "action": spec.get("action", "hop"),
+        # Which family of art the canvas should paint. Two obstacles may
+        # share a visual (a tide pool and a ford are both water) but a rope
+        # bridge and a locked gate never can - the playtest note was "i dont
+        # see the different obstacle types???".
+        "visual": spec.get("visual", "stones"),
+        "terrain": list(spec.get("terrain", ())),
         "drama": int(spec.get("drama", 1)),
         "title": spec.get("title", "The Crossing"),
         "noun": noun,
@@ -1585,6 +1801,13 @@ def insert_helper_beat(quest: dict) -> bool:
     # journey pauses, it does not rewind.
     beat["location"] = cur.get("location") or default_location(
         beat, quest.get("scenery") or quest["setting"], quest.get("goal_text", ""))
+    # A helper beat arrives mid-quest, so it never got one from
+    # assign_obstacles. Give it the gentlest thing this world offers that is
+    # not what the child is standing in front of right now.
+    pool = obstacles_for_setting(quest.get("setting", ""), [quest.get("setting", "")])
+    here = cur.get("obstacle")
+    choices = [k for k in pool if k != here] or pool
+    beat["obstacle"] = min(choices, key=lambda k: OBSTACLES[k]["drama"])
     quest["beats"].insert(at, beat)
     quest["helpers_added"] += 1
     return True

@@ -721,7 +721,7 @@ def _q(bare, expl, value, *, story=None, places=0, unit="", spread=None,
 def _k_count_next(level, band, rng, char, setting):
     hi = _rs(band, level, 5, 480)
     if band == "k1":
-        hi = min(hi, 13)
+        hi = min(hi, _scale(level, 4, 13))     # ramped inside the pip cap
     start = rng.randint(max(2, hi // 2), max(3, hi))
     forward = start <= 2 or rng.random() < 0.5
     value = start + 1 if forward else start - 1
@@ -737,7 +737,7 @@ def _k_count_next(level, band, rng, char, setting):
 def _k_compare_size(level, band, rng, char, setting):
     hi = _rs(band, level, 9, 9000)
     if band == "k1":
-        hi = min(hi, K1_DOTS_MAX)
+        hi = min(hi, _scale(level, 5, K1_DOTS_MAX))   # ramped inside the cap
     lo = max(1, hi // 4)
     pool = range(lo, max(lo + 4, hi) + 1)
     vals = rng.sample(list(pool), 3)
@@ -764,7 +764,9 @@ def _k_compare_size(level, band, rng, char, setting):
 def _k_add_2(level, band, rng, char, setting):
     hi = _rs(band, level, 4, 900)
     if band == "k1":
-        hi = min(hi, 7)
+        # The pip cap (every answer countable, so <= K1_DOTS_MAX) squeezes
+        # this band flat unless the five levels are ramped INSIDE it.
+        hi = min(hi, _scale(level, 2, 7))
     lo, hi = _span(hi, 0.45, 1)
     a, b = rng.randint(lo, hi), rng.randint(lo, hi)
     if band == "k1":
@@ -813,7 +815,7 @@ def _k_add_sub_chain(level, band, rng, char, setting):
 def _k_sub_2(level, band, rng, char, setting):
     hi = _rs(band, level, 5, 900)
     if band == "k1":
-        hi = min(hi, 14)
+        hi = min(hi, _scale(level, 4, 14))     # ramped inside the pip cap
     lo, hi = _span(hi, 0.55)
     a = rng.randint(lo, hi)
     b = rng.randint(max(1, int(a * 0.25)), max(1, a - 1))
@@ -868,7 +870,7 @@ def _k_coin_total(level, band, rng, char, setting):
 def _k_money_add_cents(level, band, rng, char, setting):
     hi = _rs(band, level, 5, 95)
     if band == "k1":
-        hi = min(hi, 9)
+        hi = min(hi, _scale(level, 2, 7))      # ramped inside the pip cap
     lo, hi = _span(hi, 0.45, 1)
     a, b = rng.randint(lo, hi), rng.randint(lo, hi)
     if band == "k1":
