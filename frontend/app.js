@@ -1138,11 +1138,14 @@ function finishQuest(data) {
   setTimeout(() => { show('screen-topic'); running = false; }, 8200);
 }
 
+/* Tapping is the way in. Walking still works wherever walking is the
+   actual puzzle (paths, perimeters, scattered treasure), and is offered
+   as the second sentence rather than the first. */
 const MODE_HINTS = {
-  single_choice: 'Use <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> to move · walk onto the stone you think is right',
-  multi_select: 'Walk onto every stone you want · step off to un-pick · <kbd>Space</kbd> to lock in',
-  collect_count: 'Walk over the treasures to collect them · <kbd>Space</kbd> when you have enough',
-  ordered_path: 'Step on the stones <b>in order</b> · a wrong one just bounces you back, no worries!',
+  single_choice: '👆 Tap the answer you think is right',
+  multi_select: '👆 Tap every answer you want · tap again to un-pick · then <b>Lock it in ✓</b>',
+  collect_count: '👆 Tap the treasures to collect them — or walk over them with <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd>',
+  ordered_path: '👆 Tap the stones <b>in order</b> — or walk the path yourself! A wrong one just bounces back.',
 };
 
 let lastBeatKey = null;
@@ -1194,9 +1197,12 @@ function applyChallenge(challenge, stats) {
   $('selected-row').innerHTML = '';
   layoutStones(challenge.stones || []);
   layoutProps(challenge.props);
+  renderAnswerTray();          // ★ the answers are DOM cards, not painted blobs
   renderSelected();
 
-  hero.x = 60;
+  // Far enough in that the (much larger) hero is never clipped by the
+  // left edge of the plate, and never standing on the first stone.
+  hero.x = 52;
   hero.y = clamp(play.bottom - hero.h - 14, play.top, H - hero.h);
   hero.face = 1;
 
@@ -1241,9 +1247,41 @@ function applyBeat(beat) {
 
   const key = `${idx}|${beat.title || ''}`;
   if (key !== lastBeatKey) {
+    const hadPage = lastBeatKey !== null;
     lastBeatKey = key;
+    // A new chapter is a new PAGE. Mid-beat picture swaps keep the canvas
+    // crossfade; only a beat change turns the leaf.
+    if (hadPage) playPageTurn();
     if (beat.intro) showNarration(beat.intro, `Chapter ${shown}`, 3600);
   }
+}
+
+/* ── the page turn ───────────────────────────────────────────────────
+   A cream leaf sweeps across the illustration and the words settle in
+   behind it. Restarting a CSS animation needs the class removed, a
+   reflow, then the class added again — hence the deliberate layout read.
+   Purely decorative: every step is optional and swallowed. */
+let pageTurnTimer = null;
+function playPageTurn() {
+  try {
+    const turn = $('page-turn');
+    const book = $('storybook');
+    if (!turn || !turn.classList) return;
+    turn.classList.remove('turn');
+    if (book && book.classList) book.classList.remove('page-changing');
+    void turn.offsetWidth;                       // force the reflow
+    turn.hidden = false;
+    turn.classList.add('turn');
+    if (book && book.classList) book.classList.add('page-changing');
+    clearTimeout(pageTurnTimer);
+    pageTurnTimer = setTimeout(() => {
+      try {
+        turn.classList.remove('turn');
+        turn.hidden = true;
+        if (book && book.classList) book.classList.remove('page-changing');
+      } catch (e) { /* ignore */ }
+    }, 900);
+  } catch (e) { /* a transition is never worth a crash */ }
 }
 
 function setTimeOfDay(t) {
@@ -1373,9 +1411,11 @@ function layoutRows(list) {
     const row = Math.floor(i / perRow);
     const col = i % perRow;
     const countInRow = row === rows - 1 ? n - perRow * row : perRow;
-    const span = W - 250;
+    // The hero is drawn large and starts on the left, so the row begins
+    // clear of it rather than underneath it.
+    const span = W - 300;
     const spacing = countInRow > 1 ? span / (countInRow - 1) : 0;
-    st.x = countInRow === 1 ? W / 2 : 170 + col * spacing;
+    st.x = countInRow === 1 ? W / 2 : 200 + col * spacing;
     st.y = startY + row * rowGap;
     st.r = r;
     return st;
@@ -1481,6 +1521,270 @@ function layoutProps(list) {
   }));
 }
 
+/* ═══════════ 9b. ★ THE ANSWER TRAY — clickable storybook cards ★ ═══
+   Walking to every option was tedious, and painting the options onto the
+   watercolour made them look like ping-pong balls glued to a painting.
+   So the answers are DOM now: designed cards in their own tray, under
+   the illustration, where they can never cover the art or the hero.
+
+   The canvas still owns the answers wherever the SPACE is the puzzle —
+   an ordered path, a perimeter walk, scattered treasure, fraction
+   sandbars — and those stay walkable. Everywhere else the canvas is
+   purely the picture. */
+
+/* Which stones (if any) still belong on the painting. */
+function canvasStoneMode() {
+  const c = state.challenge || {};
+  if (!stones.length) return 'none';
+  if (c.grade_mode === 'groups' && sandbars.length > 1) return 'islands';
+  const qt = questionType();
+  if (qt === 'ordered_path') return 'path';
+  if (qt === 'collect_count') return 'treasure';
+  return 'none';
+}
+function groupsMode() {
+  return (state.challenge || {}).grade_mode === 'groups' && sandbars.length > 1;
+}
+function stoneById(id) {
+  for (let i = 0; i < stones.length; i++) if (stones[i].id === id) return stones[i];
+  return null;
+}
+
+/* ── what a card should SHOW ──────────────────────────────────────
+   Never blank, and never a bare lonely "0" that reads as a broken or
+   empty button. Zero is a real answer in maths, so it gets drawn as an
+   empty dish beside the digit: unmistakably "none", deliberately. */
+const ZERO_RE = /^[-+]?0+(?:\.0+)?$/;
+
+function answerFace(s) {
+  const raw = s && s.label != null ? String(s.label).trim() : '';
+  const dots = num(s && s.dots, 0);
+  if (dots > 0) return { kind: 'dots', dots: clamp(Math.round(dots), 1, 12), text: raw };
+  if (raw && ZERO_RE.test(raw)) return { kind: 'zero', text: raw };
+  if (raw) return { kind: 'text', text: raw };
+  if (s && typeof s.shape === 'string' && s.shape) return { kind: 'shape', shape: s.shape };
+  return { kind: 'token' };
+}
+
+// The short version, for the "you picked…" pills.
+function faceText(s) {
+  const f = answerFace(s);
+  if (f.kind === 'dots') return f.text || '•'.repeat(Math.min(f.dots, 9));
+  if (f.kind === 'zero') return '0';
+  if (f.kind === 'text') return f.text;
+  if (f.kind === 'shape') return f.shape;
+  return '✦';
+}
+
+const SHAPE_SIDES = { triangle: 3, square: 4, pentagon: 5, hexagon: 6 };
+
+function shapeSvg(shape, edge, fill) {
+  const c = 32, r = 26;
+  const n = SHAPE_SIDES[shape];
+  let body;
+  if (shape === 'circle') {
+    body = `<circle cx="${c}" cy="${c}" r="${r}" fill="${fill}" stroke="${edge}" stroke-width="4"/>`;
+  } else if (shape === 'rectangle') {
+    body = `<rect x="4" y="16" width="56" height="32" rx="5" fill="${fill}" stroke="${edge}" stroke-width="4"/>`;
+  } else if (n) {
+    const rot = shape === 'square' ? -Math.PI / 4 : -Math.PI / 2;
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = rot + (i / n) * TAU;
+      pts.push(`${(c + Math.cos(a) * r).toFixed(1)},${(c + Math.sin(a) * r).toFixed(1)}`);
+    }
+    body = `<polygon points="${pts.join(' ')}" fill="${fill}" stroke="${edge}" stroke-width="4" stroke-linejoin="round"/>`;
+    // corner pips: a four-year-old cannot read "pentagon" but can count 5
+    for (let i = 0; i < n; i++) {
+      const a = rot + (i / n) * TAU;
+      body += `<circle cx="${(c + Math.cos(a) * r).toFixed(1)}" cy="${(c + Math.sin(a) * r).toFixed(1)}" r="4.6" fill="#fffaf1" stroke="${edge}" stroke-width="2"/>`;
+    }
+  } else {
+    body = `<circle cx="${c}" cy="${c}" r="${r}" fill="${fill}" stroke="${edge}" stroke-width="4"/>`;
+  }
+  return `<svg class="card-shape" viewBox="0 0 64 64" aria-hidden="true">${body}</svg>`;
+}
+
+function gemSvg(edge, fill) {
+  return `<svg class="card-token" viewBox="0 0 48 48" aria-hidden="true">` +
+    `<polygon points="24,4 42,17 35,44 13,44 6,17" fill="${fill}" stroke="${edge}" stroke-width="3.5" stroke-linejoin="round"/>` +
+    `<polygon points="24,4 35,44 13,44" fill="rgba(255,255,255,.45)"/>` +
+    `<path d="M6 17 L42 17" stroke="rgba(255,255,255,.75)" stroke-width="2.5" fill="none"/>` +
+    `</svg>`;
+}
+
+function faceHtml(face, s) {
+  const edge = TINT_EDGE[s && s.tint] || '#c9a874';
+  const fill = TINT_HEX[s && s.tint] || '#ffe9bd';
+  if (face.kind === 'dots') {
+    const cols = face.dots <= 3 ? face.dots : Math.ceil(Math.sqrt(face.dots));
+    let pips = '';
+    for (let i = 0; i < face.dots; i++) pips += '<i></i>';
+    const numeral = face.text && !ZERO_RE.test(face.text)
+      ? `<span class="card-sub">${escapeHtml(face.text)}</span>` : '';
+    return `<span class="card-pips" style="--cols:${cols}" aria-hidden="true">${pips}</span>${numeral}`;
+  }
+  if (face.kind === 'zero') {
+    return `<span class="card-zero"><i class="dish" aria-hidden="true"></i>` +
+           `<span class="card-num">0</span></span><span class="card-sub">zero</span>`;
+  }
+  if (face.kind === 'shape') {
+    return shapeSvg(face.shape, edge, fill) +
+      `<span class="card-sub">${escapeHtml(face.shape)}</span>`;
+  }
+  if (face.kind === 'token') return gemSvg(edge, fill);
+  const long = face.text.length > 4 ? ' long' : '';
+  return `<span class="card-num${long}">${escapeHtml(face.text)}</span>`;
+}
+
+/* ── building the tray ───────────────────────────────────────────── */
+
+let answerCards = [];          // [{ id, group, el, order }]
+
+/* In fraction mode the unit of choice is a whole sandbar, not a pebble —
+   one card per group, showing how many are on it. Everywhere else it is
+   one card per stone. */
+function trayEntries() {
+  if (groupsMode()) {
+    const seen = [];
+    const out = [];
+    stones.forEach((s) => {
+      if (seen.indexOf(s.group) >= 0) return;
+      seen.push(s.group);
+      const members = stones.filter((m) => m.group === s.group);
+      out.push({
+        stone: s, group: s.group,
+        face: { kind: 'dots', dots: clamp(members.length, 1, 12), text: '' },
+      });
+    });
+    return out;
+  }
+  return stones.map((s) => ({ stone: s, group: undefined, face: answerFace(s) }));
+}
+
+function renderAnswerTray() {
+  const tray = $('answer-tray');
+  if (!tray) return;
+  answerCards = [];
+  tray.innerHTML = '';
+  let entries = [];
+  try { entries = trayEntries(); } catch (e) { entries = []; }
+  if (!entries.length) { tray.hidden = true; return; }
+  tray.hidden = false;
+  tray.className = 'answer-tray' + (entries.length > 6 ? ' dense' : '');
+
+  entries.forEach((entry) => {
+    const s = entry.stone;
+    const card = document.createElement('button');
+    card.className = 'answer-card';
+    card.type = 'button';
+    try {
+      card.setAttribute('data-stone-id', String(s.id));
+      card.setAttribute('aria-label', faceText(s));
+      if (card.style) {
+        card.style.setProperty
+          ? card.style.setProperty('--card-edge', TINT_EDGE[s.tint] || '#e0c49a')
+          : (card.style.borderColor = TINT_EDGE[s.tint] || '#e0c49a');
+      }
+    } catch (e) { /* attributes are cosmetic */ }
+    card.innerHTML = `<span class="card-order" hidden></span>` + faceHtml(entry.face, s);
+    card.addEventListener('click', () => onAnswerClick(s.id, entry.group));
+    tray.appendChild(card);
+    answerCards.push({ id: s.id, group: entry.group, el: card, face: entry.face });
+  });
+  syncAnswerTray();
+}
+
+function groupPicked(g) {
+  return stones.some((s) => s.group === g && s.picked);
+}
+
+/* Repaint the tray's STATE without rebuilding it, so the pop animations
+   and the browser's focus ring both survive a selection. */
+function syncAnswerTray() {
+  const tray = $('answer-tray');
+  if (tray && tray.classList) tray.classList.toggle('locked', !!state.locked);
+  const ordered = questionType() === 'ordered_path';
+  answerCards.forEach((c) => {
+    const s = stoneById(c.id);
+    if (!s || !c.el || !c.el.classList) return;
+    const picked = c.group !== undefined ? groupPicked(c.group) : !!s.picked;
+    c.el.classList.toggle('picked', picked);
+    c.el.classList.toggle('good', s.reveal === 'good');
+    c.el.classList.toggle('bad', s.reveal === 'bad');
+    // once the server has revealed the answer the tray is settled
+    c.el.classList.toggle('done', !!s.reveal && !picked && s.reveal !== 'good');
+
+    let n = 0;
+    if (ordered) n = s.orderIndex > 0 ? s.orderIndex : state.selected.indexOf(s.id) + 1;
+    else if (picked && targetCount() > 1) n = state.selected.indexOf(s.id) + 1;
+    const badge = c.el.children && c.el.children[0];
+    if (badge) {
+      const show = n > 0 && (ordered ? (s.orderIndex > 0 || picked) : picked);
+      badge.textContent = show ? String(n) : '';
+      badge.hidden = !show;
+    }
+  });
+}
+
+/* Flash a card that was tapped out of turn. */
+function shakeCard(id) {
+  const c = answerCards.filter((a) => a.id === id)[0];
+  if (!c || !c.el || !c.el.classList) return;
+  c.el.classList.remove('wrongorder');
+  void c.el.offsetWidth;
+  c.el.classList.add('wrongorder');
+  setTimeout(() => { try { c.el.classList.remove('wrongorder'); } catch (e) { /* ignore */ } }, 500);
+}
+
+/* Confetti belongs where the child is looking. When the answers are DOM
+   cards there is no stone on the canvas to burst from, so the hero
+   celebrates instead. */
+function pickBurst(s, color, n) {
+  if (canvasStoneMode() !== 'none' && s) burst(s.x, s.y, color, n);
+  else {
+    burst(hero.x + hero.w / 2, hero.y + hero.h * 0.2, color, n);
+    hero.bounce = 1;
+  }
+}
+
+/* ── the click ───────────────────────────────────────────────────── */
+function onAnswerClick(id, group) {
+  if (state.locked) return;
+  const s = stoneById(id);
+  if (!s) return;
+  const qt = questionType();
+
+  if (group !== undefined) { toggleGroup(group); return; }
+  if (qt === 'ordered_path') { if (!orderedPick(s)) shakeCard(s.id); return; }
+
+  if (qt === 'single_choice') {
+    stones.forEach((o) => { o.picked = false; });
+    state.selected = [];
+    s.picked = true; s.pop = 1;
+    selAdd(s.id);
+    pickBurst(s, '#5fd0ae');
+    sfxPick();
+    renderSelected();
+    setTimeout(submitAnswer, 340);
+    return;
+  }
+
+  // multi_select / collect_count / sum — a tap toggles, so a child can
+  // always change their mind without walking anywhere.
+  if (s.picked) {
+    s.picked = false;
+    selRemove(s.id);
+    blip(360, 0.08, 'sine', 0.04);
+  } else {
+    s.picked = true; s.pop = 1;
+    selAdd(s.id);
+    pickBurst(s, qt === 'collect_count' ? '#ffd24a' : '#5fd0ae', qt === 'collect_count' ? 10 : 11);
+    sfxPick();
+  }
+  renderSelected();
+}
+
 /* ═══════════════════════ 10. INPUT ═══════════════════════ */
 
 window.addEventListener('keydown', (e) => {
@@ -1496,6 +1800,14 @@ $('btn-skip').addEventListener('click', () => {
   state.locked = true;
   hushSpeech();
   nextChallenge();
+});
+
+/* "Lock it in" is the same element as the old Space hint, now a real
+   button — a five-year-old should never have to find the space bar. */
+$('space-hint').addEventListener('click', () => {
+  if (state.locked) return;
+  if (!state.selected.length) { blip(320, 0.1, 'triangle', 0.04); return; }
+  submitAnswer();
 });
 
 /* ═══════════════════════ 11. PICKUPS ═══════════════════════ */
@@ -1517,6 +1829,25 @@ function targetCount() {
 // In grouped (fraction) mode the unit of choice is a whole sandbar, not a
 // stone: stepping onto any stone lights the entire sandbar. Stepping off and
 // back on toggles it, so a child can freely change their mind.
+// Shared by the walker and the tray: one sandbar lights or unlights whole.
+function toggleGroup(g) {
+  const members = stones.filter((s) => s.group === g);
+  if (!members.length) return false;
+  const turningOn = !members[0].picked;
+  members.forEach((s) => {
+    s.picked = turningOn;
+    if (turningOn) { selAdd(s.id); s.pop = 1; } else selRemove(s.id);
+  });
+  if (turningOn) {
+    members.forEach((s) => pickBurst(s, '#5fd0ae', 6));
+    sfxPick();
+  } else {
+    blip(360, 0.08, 'sine', 0.04);
+  }
+  renderSelected();
+  return true;
+}
+
 function checkGroupPickups() {
   const touched = new Set();
   stones.forEach((s) => {
@@ -1524,21 +1855,11 @@ function checkGroupPickups() {
     if (d < s.r + 18) touched.add(s.group);
   });
 
-  let changed = false;
   touched.forEach((g) => {
     if (prevTouched.has(g)) return;           // already standing here
-    const members = stones.filter((s) => s.group === g);
-    if (!members.length) return;
-    const turningOn = !members[0].picked;
-    members.forEach((s) => {
-      s.picked = turningOn;
-      if (turningOn) { selAdd(s.id); s.pop = 1; } else selRemove(s.id);
-    });
-    if (turningOn) { members.forEach((s) => burst(s.x, s.y, '#5fd0ae', 6)); sfxPick(); }
-    changed = true;
+    toggleGroup(g);
   });
   prevTouched = touched;
-  if (changed) renderSelected();
 }
 
 // Collect-count: walking over a treasure collects it for good. No take-backs
@@ -1595,40 +1916,47 @@ function orderedSequence() {
     .map((o) => o.id);
 }
 
-function checkOrderedPickups() {
+/* One step of the path, whether it arrived by foot or by fingertip.
+   Returns false when the step was out of turn (the caller decides whether
+   to bounce the hero or shake the card). */
+function orderedPick(s) {
+  if (!s || s.picked) return true;
   const seq = orderedSequence();
+  const expected = seq ? seq[state.selected.length] : undefined;
+  if (expected !== undefined && s.id !== expected) {
+    // soft rejection — no penalty, retry instantly
+    s.shake = 1;
+    sfxNope();
+    orderMisses++;
+    // Safety valve: if our inferred direction were ever wrong the child
+    // would be stuck forever. After three misses we stop enforcing and
+    // let the server be the judge.
+    if (orderMisses >= 3) {
+      orderUnenforced = true;
+      showNarration('Take them in any order you like — I’ll check at the end!', 'Hint', 2600);
+    }
+    return false;
+  }
+  s.picked = true; s.pop = 1;
+  selAdd(s.id);
+  pickBurst(s, '#a98cff', 9);
+  blip(540 + state.selected.length * 70, 0.12, 'sine', 0.05);
+  ropeGlow = 1;
+  renderSelected();
+  if (state.selected.length >= Math.min(stones.length, targetCount())) {
+    setTimeout(submitAnswer, 320);
+  }
+  return true;
+}
+
+function checkOrderedPickups() {
   stones.forEach((s) => {
     const d = Math.hypot(hero.x + hero.w / 2 - s.x, hero.y + hero.h / 2 - s.y);
     const near = d < s.r + 16;
     if (!near) { s.touchLock = false; return; }
     if (s.touchLock || s.picked) return;
     s.touchLock = true;
-
-    const expected = seq ? seq[state.selected.length] : s.id;
-    if (expected !== undefined && s.id !== expected) {
-      // soft bounce back — no penalty, retry instantly
-      s.shake = 1;
-      bounceHeroAway(s);
-      sfxNope();
-      orderMisses++;
-      // Safety valve: if our inferred direction were ever wrong the child
-      // would be stuck forever. After three bounces we stop enforcing and
-      // let the server be the judge.
-      if (orderMisses >= 3) {
-        orderUnenforced = true;
-        showNarration('Take them in any order you like — I’ll check at the end!', 'Hint', 2600);
-      }
-      return;
-    }
-    s.picked = true; s.pop = 1;
-    selAdd(s.id);
-    burst(s.x, s.y, '#a98cff', 9);
-    blip(540 + state.selected.length * 70, 0.12, 'sine', 0.05);
-    ropeGlow = 1;
-    renderSelected();
-    if (state.selected.length >= Math.min(stones.length, targetCount())) {
-      setTimeout(submitAnswer, 320);
-    }
+    if (!orderedPick(s)) bounceHeroAway(s);
   });
 }
 
@@ -1649,39 +1977,17 @@ function bounceHeroAway(s) {
   hero.bounce = 1;
 }
 
+/* Walking only picks things up where the stones are actually ON the
+   painting. When the answers live in the tray the hero is free to roam
+   the scene without accidentally answering the question. */
 function checkPickups() {
   if (state.locked || !state.challenge || !stones.length) return;
-  const qt = questionType();
+  const mode = canvasStoneMode();
+  if (mode === 'none') return;
 
-  if (state.challenge.grade_mode === 'groups') { checkGroupPickups(); return; }
-  if (qt === 'ordered_path') { checkOrderedPickups(); return; }
-  if (qt === 'collect_count') { checkCollectPickups(); return; }
-
-  const single = qt === 'single_choice';
-  stones.forEach((s) => {
-    const dx = hero.x + hero.w / 2 - s.x;
-    const dy = hero.y + hero.h / 2 - s.y;
-    const near = Math.hypot(dx, dy) < s.r + 16;
-
-    if (near && !s.picked) {
-      if (single) {
-        stones.forEach((o) => { o.picked = false; });
-        state.selected = [];
-      }
-      s.picked = true; s.pop = 1;
-      selAdd(s.id);
-      burst(s.x, s.y, '#5fd0ae');
-      sfxPick();
-      renderSelected();
-      // single choice auto-submits so young kids don't need the space bar
-      if (single) setTimeout(submitAnswer, 280);
-    } else if (!near && s.picked && !single) {
-      // stepping off a stone in multi-select mode de-selects it
-      s.picked = false;
-      selRemove(s.id);
-      renderSelected();
-    }
-  });
+  if (mode === 'islands') { checkGroupPickups(); return; }
+  if (mode === 'path') { checkOrderedPickups(); return; }
+  if (mode === 'treasure') { checkCollectPickups(); return; }
 }
 
 function renderSelected() {
@@ -1693,12 +1999,12 @@ function renderSelected() {
     if (!s) return;
     const pill = document.createElement('span');
     pill.className = 'sel-pill';
-    const text = s.label || (s.dots ? '•'.repeat(Math.min(s.dots, 9)) : '✦');
     pill.innerHTML = (ordered ? `<i class="ord">${i + 1}</i>` : '') +
-      `<span>${escapeHtml(text)}</span>`;
+      `<span>${escapeHtml(faceText(s))}</span>`;
     row.appendChild(pill);
   });
   updateProgressHud();
+  try { syncAnswerTray(); } catch (e) { /* the tray is never worth a crash */ }
 }
 
 function escapeHtml(s) {
@@ -1768,8 +2074,11 @@ async function submitAnswer() {
       });
     }
 
+    // Repaint the tray so the cards themselves show right / wrong.
+    try { syncAnswerTray(); } catch (e) { /* ignore */ }
+
     if (data.correct) {
-      stones.filter((s) => s.reveal === 'good').forEach((s) => burst(s.x, s.y, '#ffd24a', 18));
+      stones.filter((s) => s.reveal === 'good').forEach((s) => pickBurst(s, '#ffd24a', 18));
       sfxWin();
     } else {
       sfxNope();
@@ -1923,6 +2232,53 @@ function circle(x, y, r, fill, stroke, lw) {
 function ellipse(x, y, rx, ry, fill, stroke, lw, rot = 0) {
   gctx.beginPath(); gctx.ellipse(x, y, Math.abs(rx), Math.abs(ry), rot, 0, TAU);
   fillStroke(fill, stroke, lw);
+}
+
+/* ── painterly helpers ───────────────────────────────────────────────
+   Flat fills are what made the props read as UI rectangles dropped onto
+   a watercolour. Everything hand-drawn now gets a soft vertical light
+   ramp, a warm contact shadow and, where it belongs, a glow. */
+function vGrad(y0, y1, top, bottom) {
+  try {
+    const g = gctx.createLinearGradient(0, y0, 0, y1);
+    g.addColorStop(0, top);
+    g.addColorStop(1, bottom);
+    return g;
+  } catch (e) { return bottom; }
+}
+function dGrad(x0, y0, x1, y1, a, b) {
+  try {
+    const g = gctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, a);
+    g.addColorStop(1, b);
+    return g;
+  } catch (e) { return b; }
+}
+function glowAt(x, y, r, inner, outer) {
+  if (!(r > 0)) return;
+  try {
+    const g = gctx.createRadialGradient(x, y, Math.max(0.5, r * 0.06), x, y, r);
+    g.addColorStop(0, inner);
+    g.addColorStop(1, outer);
+    gctx.fillStyle = g;
+  } catch (e) { gctx.fillStyle = outer; }
+  gctx.beginPath(); gctx.arc(x, y, r, 0, TAU); gctx.fill();
+}
+// the little dark oval that glues an object to the ground
+function groundShadow(x, y, rx, ry, a) {
+  gctx.save();
+  gctx.globalAlpha = a === undefined ? 0.16 : a;
+  ellipse(x, y, rx, ry, '#4a3b52', null);
+  gctx.restore();
+  gctx.globalAlpha = 1;
+}
+// a soft sheen, for glass / glaze / wet things
+function sheen(x, y, rx, ry, rot, a) {
+  gctx.save();
+  gctx.globalAlpha = a === undefined ? 0.5 : a;
+  ellipse(x, y, rx, ry, '#fffdf4', null, 0, rot || 0);
+  gctx.restore();
+  gctx.globalAlpha = 1;
 }
 
 /* ═══════════════════════ 15. THE WORLD ═══════════════════════ */
@@ -2142,21 +2498,40 @@ function drawVignette() {
 
 const PROP_DRAW = {
   stone(x, y, s) {
-    ellipse(x, y + 14 * s, 26 * s, 8 * s, 'rgba(74,59,82,.16)', null);
+    groundShadow(x, y + 14 * s, 27 * s, 8 * s, 0.18);
     gctx.beginPath();
     gctx.moveTo(x - 26 * s, y + 12 * s);
-    gctx.quadraticCurveTo(x - 30 * s, y - 14 * s, x - 4 * s, y - 18 * s);
-    gctx.quadraticCurveTo(x + 26 * s, y - 20 * s, x + 26 * s, y + 12 * s);
+    gctx.quadraticCurveTo(x - 31 * s, y - 13 * s, x - 5 * s, y - 19 * s);
+    gctx.quadraticCurveTo(x + 27 * s, y - 21 * s, x + 26 * s, y + 12 * s);
     gctx.closePath();
-    fillStroke('#d9d2e2', '#b2a7c0', 3 * s);
+    fillStroke(vGrad(y - 20 * s, y + 13 * s, '#efeaf5', '#c3bad2'), '#a79bba', 2.6 * s);
+    // a mossy sunlit cap rather than a flat grey disc
+    gctx.save();
+    gctx.globalAlpha = 0.55;
+    gctx.beginPath();
+    gctx.moveTo(x - 17 * s, y - 10 * s);
+    gctx.quadraticCurveTo(x - 2 * s, y - 21 * s, x + 15 * s, y - 12 * s);
+    gctx.quadraticCurveTo(x - 1 * s, y - 15 * s, x - 17 * s, y - 10 * s);
+    gctx.closePath();
+    fillStroke('#fffdf6', null);
+    gctx.restore();
+    gctx.globalAlpha = 1;
   },
   plank(x, y, s) {
-    rrect(x - 44 * s, y - 11 * s, 88 * s, 22 * s, 7 * s);
-    fillStroke('#e0bb8e', '#b98c5e', 3 * s);
-    gctx.strokeStyle = 'rgba(185,140,94,.6)'; gctx.lineWidth = 1.6 * s;
-    [-20, 0, 20].forEach((o) => {
-      gctx.beginPath(); gctx.moveTo(x + o * s, y - 9 * s); gctx.lineTo(x + o * s, y + 9 * s); gctx.stroke();
+    groundShadow(x, y + 14 * s, 44 * s, 6 * s, 0.14);
+    rrect(x - 44 * s, y - 11 * s, 88 * s, 22 * s, 8 * s);
+    fillStroke(vGrad(y - 11 * s, y + 11 * s, '#f0d2a8', '#c69465'), '#a3754a', 2.6 * s);
+    // grain, drawn with the wood rather than across it
+    gctx.save();
+    gctx.strokeStyle = 'rgba(140,100,62,.35)'; gctx.lineWidth = 1.5 * s; gctx.lineCap = 'round';
+    [-4, 2].forEach((o, i) => {
+      gctx.beginPath();
+      gctx.moveTo(x - 36 * s, y + o * s);
+      gctx.quadraticCurveTo(x, y + (o + (i ? -3 : 3)) * s, x + 36 * s, y + o * s);
+      gctx.stroke();
     });
+    gctx.restore();
+    sheen(x - 4 * s, y - 6 * s, 30 * s, 2.6 * s, 0, 0.35);
   },
   rope(x, y, s) {
     gctx.strokeStyle = '#d8b07a';
@@ -2173,73 +2548,181 @@ const PROP_DRAW = {
       gctx.beginPath(); gctx.moveTo(bx, by - 4 * s); gctx.lineTo(bx, by + 4 * s); gctx.stroke();
     }
   },
+  /* A paper lantern, not a yellow rounded rectangle with a dot in it:
+     a warm halo that breathes, a curved paper belly, a real flame. */
   lantern(x, y, s) {
-    gctx.strokeStyle = '#8a7a63'; gctx.lineWidth = 3 * s;
-    gctx.beginPath(); gctx.moveTo(x, y - 34 * s); gctx.lineTo(x, y - 22 * s); gctx.stroke();
-    const glow = gctx.createRadialGradient(x, y, 2, x, y, 40 * s);
-    glow.addColorStop(0, 'rgba(255,224,150,.65)');
-    glow.addColorStop(1, 'rgba(255,224,150,0)');
-    gctx.fillStyle = glow; gctx.beginPath(); gctx.arc(x, y, 40 * s, 0, TAU); gctx.fill();
-    rrect(x - 13 * s, y - 22 * s, 26 * s, 34 * s, 9 * s);
-    fillStroke('#fff0c0', '#e0b45e', 3 * s);
-    circle(x, y - 5 * s, 6 * s, '#ffd24a', null);
-  },
-  basket(x, y, s) {
-    ellipse(x, y + 18 * s, 28 * s, 7 * s, 'rgba(74,59,82,.16)', null);
+    const flick = 0.84 + 0.16 * Math.sin(tick / 9 + x * 0.05);
+    // halo, two layers so the falloff is soft rather than a hard disc
+    glowAt(x, y - 2 * s, 66 * s, `rgba(255,206,122,${0.30 * flick})`, 'rgba(255,206,122,0)');
+    glowAt(x, y - 2 * s, 30 * s, `rgba(255,238,190,${0.48 * flick})`, 'rgba(255,238,190,0)');
+
+    // hook + hanging ring
+    gctx.strokeStyle = '#8a6c46'; gctx.lineWidth = 2.4 * s; gctx.lineCap = 'round';
+    gctx.beginPath(); gctx.moveTo(x, y - 42 * s); gctx.lineTo(x, y - 31 * s); gctx.stroke();
+    gctx.beginPath(); gctx.arc(x, y - 27 * s, 8 * s, Math.PI * 1.08, Math.PI * 1.92); gctx.stroke();
+
+    // cap
     gctx.beginPath();
-    gctx.moveTo(x - 28 * s, y - 12 * s);
-    gctx.lineTo(x + 28 * s, y - 12 * s);
-    gctx.lineTo(x + 20 * s, y + 16 * s);
-    gctx.lineTo(x - 20 * s, y + 16 * s);
+    gctx.moveTo(x - 15 * s, y - 21 * s);
+    gctx.quadraticCurveTo(x, y - 33 * s, x + 15 * s, y - 21 * s);
     gctx.closePath();
-    fillStroke('#e6c08a', '#b98c5e', 3 * s);
-    gctx.strokeStyle = 'rgba(185,140,94,.7)'; gctx.lineWidth = 2 * s;
-    gctx.beginPath(); gctx.moveTo(x - 24 * s, y + 2 * s); gctx.lineTo(x + 24 * s, y + 2 * s); gctx.stroke();
-    gctx.beginPath(); gctx.arc(x, y - 12 * s, 20 * s, Math.PI, 0); gctx.stroke();
+    fillStroke(vGrad(y - 33 * s, y - 21 * s, '#d19a5c', '#a8703c'), '#8a5a32', 2 * s);
+
+    // the paper belly — bowed, never boxy
+    gctx.beginPath();
+    gctx.moveTo(x - 13 * s, y - 20 * s);
+    gctx.bezierCurveTo(x - 21 * s, y - 6 * s, x - 19 * s, y + 7 * s, x - 10 * s, y + 12 * s);
+    gctx.lineTo(x + 10 * s, y + 12 * s);
+    gctx.bezierCurveTo(x + 19 * s, y + 7 * s, x + 21 * s, y - 6 * s, x + 13 * s, y - 20 * s);
+    gctx.closePath();
+    fillStroke(dGrad(x - 16 * s, y - 20 * s, x + 16 * s, y + 12 * s, '#fff7d8', '#ffce7d'),
+               '#c98a4c', 2.2 * s);
+
+    // ribs
+    gctx.save();
+    gctx.strokeStyle = 'rgba(201,138,76,.38)'; gctx.lineWidth = 1.3 * s;
+    [-7, 7].forEach((o) => {
+      gctx.beginPath();
+      gctx.moveTo(x + o * s, y - 19 * s);
+      gctx.quadraticCurveTo(x + o * 1.5 * s, y - 4 * s, x + o * 1.1 * s, y + 11 * s);
+      gctx.stroke();
+    });
+    gctx.restore();
+
+    // the flame inside
+    glowAt(x, y - 2 * s, 12 * s, `rgba(255,186,84,${0.85 * flick})`, 'rgba(255,186,84,0)');
+    gctx.beginPath();
+    gctx.moveTo(x, y - 11 * s);
+    gctx.quadraticCurveTo(x + 5 * s, y - 2 * s, x, y + 4 * s);
+    gctx.quadraticCurveTo(x - 5 * s, y - 2 * s, x, y - 11 * s);
+    gctx.closePath();
+    fillStroke(vGrad(y - 11 * s, y + 4 * s, '#fff6d0', '#ffab3d'), null);
+
+    // base
+    rrect(x - 12 * s, y + 10 * s, 24 * s, 7 * s, 3.4 * s);
+    fillStroke(vGrad(y + 10 * s, y + 17 * s, '#c9884a', '#8a5a32'), '#7a4f2c', 1.8 * s);
+    sheen(x - 6 * s, y - 7 * s, 3 * s, 7 * s, -0.22, 0.55);
   },
+
+  basket(x, y, s) {
+    groundShadow(x, y + 18 * s, 29 * s, 7 * s, 0.18);
+    // handle behind the rim
+    gctx.strokeStyle = '#a3754a'; gctx.lineWidth = 3.4 * s; gctx.lineCap = 'round';
+    gctx.beginPath(); gctx.arc(x, y - 11 * s, 20 * s, Math.PI * 1.04, Math.PI * 1.96); gctx.stroke();
+    // the body, bellied out like real wicker
+    gctx.beginPath();
+    gctx.moveTo(x - 28 * s, y - 11 * s);
+    gctx.bezierCurveTo(x - 31 * s, y + 4 * s, x - 26 * s, y + 13 * s, x - 19 * s, y + 16 * s);
+    gctx.lineTo(x + 19 * s, y + 16 * s);
+    gctx.bezierCurveTo(x + 26 * s, y + 13 * s, x + 31 * s, y + 4 * s, x + 28 * s, y - 11 * s);
+    gctx.closePath();
+    fillStroke(vGrad(y - 12 * s, y + 16 * s, '#f0cd9a', '#c08f58'), '#a3754a', 2.6 * s);
+    // weave
+    gctx.save();
+    gctx.strokeStyle = 'rgba(140,100,62,.34)'; gctx.lineWidth = 1.5 * s;
+    [-3, 5, 12].forEach((o, i) => {
+      const halfW = (27 - i * 2.6) * s;
+      gctx.beginPath();
+      gctx.moveTo(x - halfW, y + o * s);
+      gctx.quadraticCurveTo(x, y + (o + 2.6) * s, x + halfW, y + o * s);
+      gctx.stroke();
+    });
+    gctx.restore();
+    // rim
+    ellipse(x, y - 11 * s, 28 * s, 6 * s, vGrad(y - 17 * s, y - 5 * s, '#f6dcb2', '#cf9e66'), '#a3754a', 2.4 * s);
+    sheen(x - 10 * s, y + 1 * s, 6 * s, 9 * s, -0.25, 0.3);
+  },
+
   berry(x, y, s) {
-    circle(x, y, 11 * s, '#ff7f9e', '#e04f75', 2.6 * s);
-    circle(x - 3.5 * s, y - 3.5 * s, 3 * s, 'rgba(255,255,255,.75)', null);
+    groundShadow(x, y + 11 * s, 9 * s, 3 * s, 0.12);
+    circle(x, y, 11 * s, dGrad(x - 11 * s, y - 11 * s, x + 9 * s, y + 11 * s, '#ff9fb6', '#e0577c'),
+           '#c33f64', 2.2 * s);
+    sheen(x - 3.6 * s, y - 4 * s, 3.4 * s, 2.4 * s, -0.5, 0.78);
+    // a leaf with a spine
     gctx.beginPath();
     gctx.moveTo(x + 2 * s, y - 10 * s);
-    gctx.quadraticCurveTo(x + 15 * s, y - 20 * s, x + 4 * s, y - 15 * s);
-    fillStroke('#7fc96b', null);
+    gctx.quadraticCurveTo(x + 16 * s, y - 21 * s, x + 4 * s, y - 15 * s);
+    gctx.closePath();
+    fillStroke(dGrad(x, y - 21 * s, x + 16 * s, y - 10 * s, '#a6e08c', '#5fae4d'), '#4f9440', 1.1 * s);
   },
+
   gem(x, y, s) {
+    const tw = 0.7 + 0.3 * Math.sin(tick / 22 + x * 0.04);
+    glowAt(x, y, 26 * s, `rgba(150,226,255,${0.26 * tw})`, 'rgba(150,226,255,0)');
     gctx.save(); gctx.translate(x, y);
     gctx.beginPath();
     gctx.moveTo(0, -15 * s); gctx.lineTo(13 * s, -4 * s); gctx.lineTo(8 * s, 14 * s);
     gctx.lineTo(-8 * s, 14 * s); gctx.lineTo(-13 * s, -4 * s);
     gctx.closePath();
-    fillStroke('#9fe6ff', '#4fb8e8', 2.6 * s);
-    gctx.strokeStyle = 'rgba(255,255,255,.8)'; gctx.lineWidth = 1.6 * s;
+    fillStroke(dGrad(-13 * s, -15 * s, 13 * s, 14 * s, '#d6f5ff', '#5ec4ea'), '#3b9ccc', 2.2 * s);
+    // the lit facet
+    gctx.beginPath();
+    gctx.moveTo(0, -15 * s); gctx.lineTo(13 * s, -4 * s); gctx.lineTo(0, 14 * s);
+    gctx.closePath();
+    gctx.globalAlpha = 0.45; fillStroke('#ffffff', null); gctx.globalAlpha = 1;
+    gctx.strokeStyle = 'rgba(255,255,255,.85)'; gctx.lineWidth = 1.4 * s;
     gctx.beginPath(); gctx.moveTo(0, -15 * s); gctx.lineTo(0, 14 * s);
     gctx.moveTo(-13 * s, -4 * s); gctx.lineTo(13 * s, -4 * s); gctx.stroke();
     gctx.restore();
+    // a single travelling sparkle
+    gctx.globalAlpha = tw;
+    circle(x - 4 * s, y - 8 * s, 1.9 * s, '#ffffff', null);
+    gctx.globalAlpha = 1;
   },
-  sack(x, y, s) {
-    ellipse(x, y + 22 * s, 24 * s, 7 * s, 'rgba(74,59,82,.16)', null);
+
+  sack(x, y, s, label) {
+    groundShadow(x, y + 22 * s, 25 * s, 7 * s, 0.18);
     gctx.beginPath();
     gctx.moveTo(x - 8 * s, y - 18 * s);
-    gctx.quadraticCurveTo(x - 30 * s, y + 2 * s, x - 18 * s, y + 20 * s);
-    gctx.lineTo(x + 18 * s, y + 20 * s);
-    gctx.quadraticCurveTo(x + 30 * s, y + 2 * s, x + 8 * s, y - 18 * s);
+    gctx.bezierCurveTo(x - 32 * s, y + 1 * s, x - 26 * s, y + 16 * s, x - 17 * s, y + 20 * s);
+    gctx.lineTo(x + 17 * s, y + 20 * s);
+    gctx.bezierCurveTo(x + 26 * s, y + 16 * s, x + 32 * s, y + 1 * s, x + 8 * s, y - 18 * s);
     gctx.closePath();
-    fillStroke('#e3cfae', '#b59a72', 3 * s);
-    gctx.strokeStyle = '#b59a72'; gctx.lineWidth = 3.4 * s;
-    gctx.beginPath(); gctx.moveTo(x - 9 * s, y - 14 * s); gctx.lineTo(x + 9 * s, y - 14 * s); gctx.stroke();
+    fillStroke(vGrad(y - 18 * s, y + 20 * s, '#f3e2c4', '#cbb28c'), '#a89070', 2.6 * s);
+    // the cinch, with cloth folds fanning out below it
+    gctx.save();
+    gctx.strokeStyle = 'rgba(168,144,112,.55)'; gctx.lineWidth = 1.5 * s;
+    [-10, 0, 10].forEach((o) => {
+      gctx.beginPath();
+      gctx.moveTo(x + o * 0.45 * s, y - 10 * s);
+      gctx.quadraticCurveTo(x + o * 0.9 * s, y + 4 * s, x + o * s, y + 17 * s);
+      gctx.stroke();
+    });
+    gctx.restore();
+    gctx.strokeStyle = '#a8703c'; gctx.lineWidth = 3.4 * s; gctx.lineCap = 'round';
+    gctx.beginPath(); gctx.moveTo(x - 9 * s, y - 13 * s); gctx.lineTo(x + 9 * s, y - 13 * s); gctx.stroke();
+    sheen(x - 9 * s, y + 2 * s, 4 * s, 9 * s, -0.2, 0.32);
+    if (label) {
+      gctx.fillStyle = '#6b5340';
+      gctx.font = `800 ${13 * s}px 'Baloo 2', sans-serif`;
+      gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
+      gctx.fillText(String(label), x, y + 5 * s);
+    }
   },
   signpost(x, y, s, label) {
-    gctx.fillStyle = '#c49a6c';
+    groundShadow(x, y + 34 * s, 16 * s, 5 * s, 0.16);
+    gctx.fillStyle = vGrad(y - 10 * s, y + 34 * s, '#d4a879', '#a3754a');
     gctx.fillRect(x - 4 * s, y - 10 * s, 8 * s, 44 * s);
-    rrect(x - 40 * s, y - 34 * s, 80 * s, 28 * s, 8 * s);
-    fillStroke('#fff3d8', '#c49a6c', 3 * s);
+    // the board, tilted just enough to look nailed on by hand
+    gctx.save();
+    gctx.translate(x, y - 20 * s);
+    gctx.rotate(-0.035);
+    rrect(-40 * s, -14 * s, 80 * s, 28 * s, 8 * s);
+    fillStroke(vGrad(-14 * s, 14 * s, '#fff6e2', '#f0dcb8'), '#b9895a', 2.6 * s);
+    gctx.strokeStyle = 'rgba(185,137,90,.4)'; gctx.lineWidth = 1.2 * s;
+    gctx.beginPath(); gctx.moveTo(-34 * s, -6 * s); gctx.lineTo(34 * s, -6 * s); gctx.stroke();
     if (label) {
-      gctx.fillStyle = '#7d6b86';
-      gctx.font = `700 ${13 * s}px 'Baloo 2', sans-serif`;
+      gctx.fillStyle = '#6b5340';
+      gctx.font = `800 ${14 * s}px 'Baloo 2', sans-serif`;
       gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-      gctx.fillText(label, x, y - 20 * s);
+      gctx.fillText(String(label), 0, 2 * s);
     }
+    gctx.restore();
+    // two nail heads
+    gctx.fillStyle = 'rgba(122,79,44,.7)';
+    [-1, 1].forEach((sg) => {
+      gctx.beginPath(); gctx.arc(x + sg * 30 * s, y - 20 * s, 1.8 * s, 0, TAU); gctx.fill();
+    });
   },
   gate(x, y, s) {
     gctx.fillStyle = '#cbb6e0';
@@ -2287,6 +2770,7 @@ const PROP_DRAW = {
     circle(x, y, 3 * s, '#7d6b86', null);
   },
   fence_post(x, y, s) {
+    groundShadow(x, y + 26 * s, 11 * s, 4 * s, 0.16);
     gctx.beginPath();
     gctx.moveTo(x - 7 * s, y + 26 * s);
     gctx.lineTo(x - 7 * s, y - 16 * s);
@@ -2294,13 +2778,26 @@ const PROP_DRAW = {
     gctx.lineTo(x + 7 * s, y - 16 * s);
     gctx.lineTo(x + 7 * s, y + 26 * s);
     gctx.closePath();
-    fillStroke('#e0bb8e', '#b98c5e', 3 * s);
+    fillStroke(dGrad(x - 7 * s, y, x + 7 * s, y, '#f0d2a8', '#b9885a'), '#966a42', 2.6 * s);
+    gctx.save();
+    gctx.strokeStyle = 'rgba(140,100,62,.3)'; gctx.lineWidth = 1.2 * s;
+    gctx.beginPath(); gctx.moveTo(x - 1.5 * s, y - 13 * s); gctx.lineTo(x - 1.5 * s, y + 22 * s);
+    gctx.moveTo(x + 3 * s, y - 11 * s); gctx.lineTo(x + 3 * s, y + 20 * s);
+    gctx.stroke();
+    gctx.restore();
   },
   tile(x, y, s) {
     gctx.save(); gctx.translate(x, y); gctx.scale(1, 0.55);
     polyPath(0, 0, 26 * s, 4, 0);
-    fillStroke('#e6dcf0', '#bda9d4', 3 * s);
+    fillStroke(dGrad(-26 * s, -26 * s, 26 * s, 26 * s, '#f4eefc', '#d6c7ea'), '#b09cd0', 2.6 * s);
     gctx.restore();
+    gctx.save();
+    gctx.globalAlpha = 0.5;
+    gctx.translate(x, y - 3 * s); gctx.scale(1, 0.55);
+    polyPath(0, 0, 15 * s, 4, 0);
+    fillStroke('#ffffff', null);
+    gctx.restore();
+    gctx.globalAlpha = 1;
   },
   droplet(x, y, s) {
     gctx.beginPath();
@@ -2309,8 +2806,8 @@ const PROP_DRAW = {
     gctx.arc(x, y + 6 * s, 12 * s, 0.35, Math.PI - 0.35);
     gctx.quadraticCurveTo(x - 15 * s, y + 2 * s, x, y - 18 * s);
     gctx.closePath();
-    fillStroke('#a9e2ff', '#5fb7e0', 2.8 * s);
-    circle(x - 3 * s, y + 3 * s, 3 * s, 'rgba(255,255,255,.8)', null);
+    fillStroke(vGrad(y - 18 * s, y + 18 * s, '#d4f1ff', '#72c2e8'), '#4aa3cf', 2.4 * s);
+    sheen(x - 3.5 * s, y + 2 * s, 3.2 * s, 5 * s, -0.3, 0.8);
   },
   tick(x, y, s) {
     circle(x, y, 17 * s, '#b6f0d8', '#5fd0ae', 3 * s);
@@ -2476,16 +2973,20 @@ function drawStone(s) {
   const r = s.r * popScale;
 
   // shadow — tighter when the stone is lifted
-  ellipse(x, s.y + s.r * 0.8, s.r * 0.8 - lift * 0.5, 10, 'rgba(74,59,82,.16)', null);
+  groundShadow(x, s.y + s.r * 0.82, s.r * 0.82 - lift * 0.5, Math.max(5, s.r * 0.26), 0.17);
 
-  // colours
+  /* Colours. The unlit default used to be a cold grey-lilac disc, which
+     is exactly what made these read as ping-pong balls glued to a
+     watercolour. Untinted stones are warm river stone now, and every
+     fill is a light ramp rather than a flat wash. */
   const tintFill = TINT_HEX[s.tint];
   const tintEdge = TINT_EDGE[s.tint];
-  let fill = tintFill || '#fbf6ee';
-  let stroke = tintEdge || '#cbbdd4';
-  if (s.reveal === 'good') { fill = '#b6f0d8'; stroke = '#3aa580'; }
-  else if (s.reveal === 'bad') { fill = '#ffd9c7'; stroke = '#ff9a6c'; }
-  else if (s.picked) { fill = '#fff2bf'; stroke = '#ffb800'; }
+  let fill = tintFill || '#f0e2c9';
+  let fillLo = tintFill ? darken(tintFill, 0.86) : '#cfb68f';
+  let stroke = tintEdge || '#a3855e';
+  if (s.reveal === 'good') { fill = '#c8f4e0'; fillLo = '#8fdcbe'; stroke = '#3aa580'; }
+  else if (s.reveal === 'bad') { fill = '#ffdcc9'; fillLo = '#f5b394'; stroke = '#e0764a'; }
+  else if (s.picked) { fill = '#fff3c9'; fillLo = '#f2cf72'; stroke = '#d89b1e'; }
 
   // pickup ring
   if (s.pop > 0) {
@@ -2498,12 +2999,23 @@ function drawStone(s) {
   gctx.save();
   if (s.picked || s.reveal === 'good') { gctx.shadowColor = stroke; gctx.shadowBlur = 18; }
   const sides = shapePath(s.shape, x, y, r);
-  fillStroke(fill, stroke, s.picked || s.reveal ? 6 : 4);
+  fillStroke(vGrad(y - r, y + r, fill, fillLo), stroke, s.picked || s.reveal ? 5.5 : 3.4);
   gctx.restore();
 
+  // a soft rim-light along the top edge, so it sits in the scene's light
+  gctx.save();
+  gctx.globalAlpha = 0.5;
+  gctx.strokeStyle = '#fffdf4';
+  gctx.lineWidth = Math.max(1.4, r * 0.09);
+  gctx.beginPath();
+  gctx.arc(x, y, r * 0.86, Math.PI * 1.12, Math.PI * 1.88);
+  gctx.stroke();
+  gctx.restore();
+  gctx.globalAlpha = 1;
+
   // glossy top highlight
-  gctx.globalAlpha = 0.45;
-  ellipse(x - r * 0.22, y - r * 0.42, r * 0.42, r * 0.2, '#ffffff', null, 0, -0.35);
+  gctx.globalAlpha = 0.4;
+  ellipse(x - r * 0.22, y - r * 0.44, r * 0.4, r * 0.18, '#ffffff', null, 0, -0.35);
   gctx.globalAlpha = 1;
 
   if (sides > 0) drawCorners(s.shape, x, y, r);
@@ -3015,16 +3527,30 @@ function drawCreature(x, y, size, o) {
 
    The collision box (hero.w/h) is deliberately left alone: it is what the
    pickup maths uses, and changing it would change the game. */
-const SPRITE_BAND_FRACTION = 0.30;   // of the play band's height
-const SPRITE_MAX_W = 200;
+/* Scale. The hero used to be drawn at roughly the size of its own 58px
+   collision box, which on a 960×540 plate read as a thumbnail in the
+   corner — easy to miss entirely. It is the hero of the scene, so it is
+   now drawn at ~2.5× that, filling most of the play band, while the
+   collision box (hero.w/h) is deliberately left alone: it is what the
+   pickup maths uses, and changing it would change the game. */
+const SPRITE_BAND_FRACTION = 0.74;   // of the play band's height
+const SPRITE_MAX_W = 260;
+const HERO_MIN_SCALE = 1.6;          // × the collision box
+const HERO_MAX_SCALE = 3.1;
+const CREATURE_FOOT_FRACTION = 0.38; // how far below its centre a creature's feet sit
+
+// How tall whoever is standing there should be drawn.
+function heroDrawHeight() {
+  const band = Math.max(80, play.bottom - play.top);
+  return clamp(band * SPRITE_BAND_FRACTION, hero.h * HERO_MIN_SCALE, hero.h * HERO_MAX_SCALE);
+}
 
 function spriteMetrics() {
   if (!imgReady(spriteImage)) return null;
   const nw = spriteImage.naturalWidth;
   const nh = spriteImage.naturalHeight;
   if (!(nw > 0) || !(nh > 0)) return null;
-  const band = Math.max(80, play.bottom - play.top);
-  let h = clamp(band * SPRITE_BAND_FRACTION, hero.h * 1.1, hero.h * 2.2);
+  let h = heroDrawHeight();
   let w = h * (nw / nh);
   if (w > SPRITE_MAX_W) { w = SPRITE_MAX_W; h = w * (nh / nw); }   // never stretch: refit
   return { w, h };
@@ -3044,12 +3570,14 @@ function drawHero() {
   const sy = 1 + hero.sq;
 
   const spr = spriteMetrics();
+  const creatureH = heroDrawHeight();
 
   // Contact shadow, sized to whoever is actually standing there. It shrinks
   // and fades as the hero lifts off the ground.
   const lift = clamp((bounce + 6) / 12, 0, 1);
-  const shadowRx = (spr ? spr.w * 0.34 : 24) * (1 - lift * 0.3);
-  const shadowRy = (spr ? Math.max(6, spr.w * 0.11) : 8) * (1 - lift * 0.3);
+  const footprint = spr ? spr.w : creatureH * 0.86;
+  const shadowRx = footprint * 0.34 * (1 - lift * 0.3);
+  const shadowRy = Math.max(6, footprint * 0.11) * (1 - lift * 0.3);
   gctx.globalAlpha = 0.07 + 0.09 * (1 - lift);
   ellipse(cx, groundY + 1, shadowRx * 1.45, shadowRy * 1.35, '#4a3b52', null);
   gctx.globalAlpha = 0.10 + 0.14 * (1 - lift);
@@ -3074,8 +3602,10 @@ function drawHero() {
     }
     gctx.restore();
   } else {
+    // The procedural creature is anchored at its FEET too, so scaling it
+    // up plants it on the ground plane instead of floating it.
     const look = heroLook || (heroLook = describeHero());
-    drawCreature(cx, cy, hero.h, {
+    drawCreature(cx, groundY - creatureH * CREATURE_FOOT_FRACTION + bounce * 0.6, creatureH, {
       species: look.species,
       color: look.color,
       accent: look.accent,
@@ -3088,18 +3618,31 @@ function drawHero() {
 
   const name = state.interpretation && state.interpretation.character_name;
   if (name) {
-    // Sit the name tag above whoever is drawn, not above the collision box.
-    const topY = spr ? groundY - spr.h : hero.y;
-    const tagY = clamp(Math.min(hero.y - 26, topY - 22), 6, H - 30);
+    // A little painted name ribbon, sitting above whoever is actually
+    // drawn — not above the invisible collision box.
+    const drawnH = spr ? spr.h : creatureH * 1.15;
+    const tagY = clamp(groundY - drawnH - 26, 8, H - 34);
     gctx.save();
-    gctx.font = "700 13px 'Baloo 2', sans-serif";
+    gctx.font = "800 15px 'Baloo 2', sans-serif";
     gctx.textAlign = 'center';
     gctx.textBaseline = 'middle';
-    const w = gctx.measureText(name).width + 18;
-    rrect(cx - w / 2, tagY, w, 20, 10);
-    fillStroke('rgba(255,250,244,.92)', 'rgba(122,96,134,.25)', 2);
-    gctx.fillStyle = '#4a3b52';
-    gctx.fillText(name, cx, tagY + 10);
+    const w = gctx.measureText(name).width + 26;
+    const hgt = 25;
+    gctx.shadowColor = 'rgba(74,59,82,.28)';
+    gctx.shadowBlur = 9;
+    gctx.shadowOffsetY = 3;
+    rrect(cx - w / 2, tagY, w, hgt, 12);
+    fillStroke('rgba(255,250,241,.96)', 'rgba(201,168,116,.9)', 2.4);
+    gctx.shadowBlur = 0; gctx.shadowOffsetY = 0;
+    // the little tail that points down at the hero
+    gctx.beginPath();
+    gctx.moveTo(cx - 6, tagY + hgt - 1);
+    gctx.lineTo(cx, tagY + hgt + 6);
+    gctx.lineTo(cx + 6, tagY + hgt - 1);
+    gctx.closePath();
+    fillStroke('rgba(255,250,241,.96)', null);
+    gctx.fillStyle = '#6b5340';
+    gctx.fillText(name, cx, tagY + hgt / 2);
     gctx.restore();
   }
 }
@@ -3132,9 +3675,17 @@ function draw() {
   drawAmbient();
 
   props.forEach(drawProp);
-  sandbars.forEach(drawSandbar);
-  drawRopeTrail();
-  stones.forEach(drawStone);
+
+  /* ★ The answers are DOM cards now. The canvas only paints them where
+     the SPACE is the puzzle — a path to walk, a perimeter to trace,
+     treasure scattered across the ground, fraction islands in a river.
+     Everywhere else the picture stays a picture. */
+  if (canvasStoneMode() !== 'none') {
+    sandbars.forEach(drawSandbar);
+    drawRopeTrail();
+    stones.forEach(drawStone);
+  }
+
   drawHero();
   drawParticles();
 

@@ -107,7 +107,14 @@
   <div class="topic-grid" id="topic-grid"></div>
 </section>
 
-<!-- ───────────────────────── GAME ───────────────────────── -->
+<!-- ───────────────────────── GAME ─────────────────────────
+     Laid out as a picture book: a plate (the illustration) on the upper
+     page, the story + question + answers on the lower page. The three
+     regions — ART (which contains the character), NARRATION and ANSWERS —
+     are block-level siblings in normal flow, so they can never overlap.
+     The only absolutely-positioned overlays are pinned INSIDE a single
+     region: #narration-card fills #story-slot, #toast and #page-turn fill
+     #art-frame. -->
 <section id="screen-game" class="screen">
   <div class="hud">
     <button class="btn btn-ghost btn-tiny" data-goto="screen-topic">‹ Menu</button>
@@ -122,7 +129,7 @@
     <button class="btn btn-soft btn-tiny" id="btn-skip">Skip ↻</button>
   </div>
 
-  <!-- ★ where we're headed, and how far we've come ★ -->
+  <!-- ★ the storybook map — where we're headed, and how far we've come ★ -->
   <div class="quest-trail" id="quest-trail" hidden>
     <div class="trail-head">
       <span class="trail-eyebrow">We’re heading to</span>
@@ -139,41 +146,58 @@
     </div>
   </div>
 
-  <!-- chapter / beat progress -->
-  <div class="chapter-row" id="chapter-row" hidden>
-    <span class="chapter-chip" id="beat-chip">Chapter 1</span>
-    <div class="beat-bar"><i id="beat-fill"></i></div>
-  </div>
+  <div class="storybook" id="storybook">
 
-  <!-- ★ THE PROBLEM — always visible, never replaced by story text ★ -->
-  <div class="problem-banner" id="problem-banner">
-    <div class="problem-main">
-      <span class="problem-eyebrow">Your question</span>
-      <p class="problem-text" id="problem-text">…</p>
+    <!-- book furniture: the running head -->
+    <div class="chapter-row" id="chapter-row" hidden>
+      <span class="chapter-chip" id="beat-chip">Chapter 1</span>
+      <div class="beat-bar"><i id="beat-fill"></i></div>
     </div>
-    <div class="problem-side">
-      <span class="problem-progress" id="problem-progress" hidden>0 of 0 ⭐</span>
-      <span class="space-hint" id="space-hint" hidden>Press <kbd>Space</kbd> ✓</span>
+
+    <!-- ── UPPER PAGE: the illustration plate ── -->
+    <div class="page-art">
+      <div class="art-frame" id="art-frame">
+        <canvas id="game-canvas" width="960" height="540"></canvas>
+        <div class="toast" id="toast" hidden></div>
+        <div class="page-turn" id="page-turn" aria-hidden="true"><i class="sheet"></i></div>
+      </div>
     </div>
-  </div>
 
-  <div class="story-bar">
-    <span class="story-avatar" id="story-avatar">🐱</span>
-    <p id="story-text">Loading your adventure…</p>
-  </div>
+    <!-- ── LOWER PAGE: the words ── -->
+    <div class="page-text">
 
-  <div class="game-wrap">
-    <canvas id="game-canvas" width="960" height="540"></canvas>
-    <div class="narration-card" id="narration-card" hidden>
-      <span class="narration-badge" id="narration-badge">Chapter</span>
-      <p id="narration-text"></p>
+      <!-- the prose. #narration-card is pinned to THIS slot and nowhere else. -->
+      <div class="story-slot" id="story-slot">
+        <div class="story-bar">
+          <span class="story-avatar" id="story-avatar">🐱</span>
+          <p id="story-text">Loading your adventure…</p>
+        </div>
+        <div class="narration-card" id="narration-card" hidden>
+          <span class="narration-badge" id="narration-badge">Chapter</span>
+          <p id="narration-text"></p>
+        </div>
+      </div>
+
+      <!-- ★ THE PROBLEM — always visible, never replaced by story text ★ -->
+      <div class="problem-banner" id="problem-banner">
+        <div class="problem-main">
+          <span class="problem-eyebrow">Your question</span>
+          <p class="problem-text" id="problem-text">…</p>
+        </div>
+        <div class="problem-side">
+          <span class="problem-progress" id="problem-progress" hidden>0 of 0 ⭐</span>
+        </div>
+      </div>
+
+      <!-- ★ the answers — clickable storybook cards, never painted blobs ★ -->
+      <div class="answer-tray" id="answer-tray" hidden></div>
+
+      <div class="game-foot">
+        <div class="selected-row" id="selected-row"></div>
+        <button class="lock-btn" id="space-hint" type="button" hidden>Lock it in <kbd>Space</kbd> ✓</button>
+        <p class="controls-hint" id="controls-hint">Tap the answer you think is right ✨</p>
+      </div>
     </div>
-    <div class="toast" id="toast" hidden></div>
-  </div>
-
-  <div class="game-foot">
-    <p class="controls-hint" id="controls-hint">Use <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> to move · walk onto a stone to pick it · <kbd>Space</kbd> to lock in</p>
-    <div class="selected-row" id="selected-row"></div>
   </div>
 </section>
 

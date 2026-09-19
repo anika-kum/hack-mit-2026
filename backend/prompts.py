@@ -113,10 +113,16 @@ Respond with ONLY valid JSON, no markdown fences:
   "character_name": "a cute two-syllable name fitting the character",
   "setting": "one short phrase describing the environment, e.g. 'a river meadow with a big tree'",
   "relationships": ["cat beside tree", "house across river"],
+  "layout": ["tree on the far left", "river across the right half", "house in the top right"],
   "story_hook": "one warm, exciting sentence to open the adventure, addressed to the child"
 }
 
-The first item in "objects" must be the main character."""
+The first item in "objects" must be the main character.
+
+"layout" is important: describe WHERE each non-character thing sits using
+explicit left / centre / right and top / bottom, exactly as it appears in the
+drawing. The game re-paints the child's world and must keep their arrangement,
+so if the tree is on the left it must stay on the left."""
 
 
 def _fallback_interpretation(text_description: str | None = None):
@@ -410,6 +416,19 @@ def _world_prompt(interpretation: dict, theme: str, scene_kind: str,
         if not _mentions_hero(r, interpretation)
     ])
     rel_txt = f" Composition: {rels}." if rels else ""
+
+    # The child's spatial arrangement is the whole point of "your drawing
+    # becomes the game" - without an explicit left/right instruction the
+    # image model mirrors or reshuffles their layout.
+    layout = "; ".join([
+        l for l in interpretation.get("layout", [])[:5]
+        if l and not _mentions_hero(l, interpretation)
+    ])
+    layout_txt = (
+        f" CRITICAL - keep the child's exact arrangement, do not mirror or "
+        f"rearrange it: {layout}." if layout else ""
+    )
+    rel_txt += layout_txt
     setting = strip_hero(setting, interpretation) or _scenery_objects(interpretation)
     scene_brief = strip_hero(scene_brief or "", interpretation)
     scene_txt = f" This particular view shows: {scene_brief}." if scene_brief else ""
