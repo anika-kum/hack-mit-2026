@@ -27,12 +27,31 @@ IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare")
 TEXT_MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-5.6-luna")
 IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "low")
 
+# ---------------------------------------------------------- art direction
+#
+# 2026-09-19 playtest: "we originally said cutesy and pastel, but it ended up
+# very 'girly' and childish; which may not be appropriate for a slightly older
+# audience (or boys)."
+#
+# So the whole art brief moved off sugar-pastel and onto ADVENTURE SKETCHBOOK:
+# warm peach, amber and cream (which is where the Do-IT-oodle brand already
+# sits), balanced against moss green, deep teal and clay. Still hand-painted,
+# still friendly, still rounded - but it should read like the endpapers of an
+# adventure book rather than a nursery wall. Do not put "pastel" back in here.
+ART_DIRECTION = (
+    "hand-painted watercolour-and-ink adventure storybook illustration; warm "
+    "earthy palette of peach, amber, terracotta and warm cream balanced with "
+    "moss green, deep teal and slate blue; confident inked outlines, visible "
+    "paper grain, gentle depth; friendly and inviting for any child aged 4-10, "
+    "adventurous rather than sugary, no glitter, no hearts, no candy colours"
+)
+
 THEMES = {
-    "storybook": "soft pastel storybook illustration, watercolor textures, gentle rounded shapes",
-    "candy": "candy-colored dreamland, cotton-candy clouds, glossy pastel sweets",
-    "forest": "cozy pastel woodland, soft moss greens and warm creams, dappled light",
-    "ocean": "gentle pastel underwater world, soft aquas and corals, floating bubbles",
-    "space": "dreamy pastel outer space, soft lavender nebulas, friendly little stars",
+    "storybook": "classic adventure-book scenery, inked outlines, warm sunlit washes",
+    "woodland": "deep woodland of moss, fern and bracken, amber light through leaves",
+    "coast": "windy coastline of teal water, pale sand, weathered rope and timber",
+    "canyon": "high desert canyon of terracotta rock, dry gold scrub, wide sky",
+    "starlight": "quiet night country under deep indigo sky and warm lantern light",
 }
 
 _client = None
@@ -239,6 +258,8 @@ Respond with ONLY valid JSON, no markdown fences:
   ]
 }
 
+SOME STOPS HAVE NO PUZZLE AT ALL. Their role says so ("A WORDLESS CROSSING", "ANOTHER WORDLESS STRETCH"). At those stops the child simply MOVES - hops stones, climbs ledges, pushes a log - and the story goes on. Write them as pure action: what is in the way, and what it feels like to get over it. Never ask a question there and never mention counting.
+
 RULES
 - Write {char} instead of the character's name. This is the only placeholder allowed in "title", "location", "intro" and "advances".
 - In "on_success" for a stop whose role mentions GATHER, you may also write "{gain} {subject}" - it becomes e.g. "7 berries". Use it at most once.
@@ -272,8 +293,26 @@ def sanitize_story_text(text) -> str:
     return cleaned.strip()
 
 
+# How ornate the prose should be. Driven by story_engine.complexity_for(),
+# which is band + topic: a speed/distance/time quest for a nine-year-old gets
+# a materially richer story than an addition quest for a four-year-old, and
+# that has to show up in the WORDS as well as in the number of stops.
+_REGISTER_BRIEF = {
+    "simple": ("Very short sentences, five to nine words. Only words a "
+               "five-year-old hears every day. One idea per sentence. Name "
+               "things plainly: the water, the big rock, the gate. No "
+               "subclauses, no metaphors."),
+    "rich": ("Longer, more varied sentences with real texture. Specific "
+             "nouns (scree, boat-house, lantern-post, switchback) and strong "
+             "verbs. One vivid image per beat. Two or three plot turns across "
+             "the journey - something noticed early that matters later. Still "
+             "warm and readable for a nine-year-old."),
+}
+
+
 def generate_storyline(interpretation: dict, band: str, destination: str,
-                       skeleton: list[dict], topic: str = "") -> dict | None:
+                       skeleton: list[dict], topic: str = "",
+                       complexity: int | None = None) -> dict | None:
     """Write a bespoke quest outline for this child. None => use a template."""
     client = get_client()
     if client is None:
@@ -286,6 +325,10 @@ def generate_storyline(interpretation: dict, band: str, destination: str,
     age = {"k1": "4-6 (cannot read much yet - keep it very simple)",
            "23": "7-8", "45": "9-10"}.get(band, "7-8")
 
+    if complexity is None:
+        complexity = {"k1": 0, "23": 1, "45": 2}.get(band, 1) + 1
+    register = "simple" if complexity <= 1 else "rich"
+
     stops = "\n".join(
         f'  {i + 1}. role: {s["role"]}' for i, s in enumerate(skeleton))
 
@@ -295,7 +338,8 @@ def generate_storyline(interpretation: dict, band: str, destination: str,
         f"Things in their world: {objects}\n"
         f"DESTINATION (the goal of the whole quest): {destination}\n"
         f"Child's age: {age}\n"
-        f"Math topic woven through it: {topic or 'number puzzles'}\n\n"
+        f"Math topic woven through it: {topic or 'number puzzles'}\n"
+        f"STORY COMPLEXITY: {complexity} out of 5. {_REGISTER_BRIEF[register]}\n\n"
         f"The skeleton has exactly {len(skeleton)} stops, in this order:\n{stops}\n\n"
         f"Return exactly {len(skeleton)} beats, one per stop, in the same order."
     )
@@ -404,10 +448,9 @@ def _world_prompt(interpretation: dict, theme: str, scene_kind: str,
         return (
             "A single full-body game character sprite on a COMPLETELY TRANSPARENT "
             "background - no scenery, no ground, no sky, no backdrop of any kind, "
-            "just the character cut out. Facing the viewer, centered, friendly and "
-            f"huggable. The character is: {hero}. Style: {style}. Cute cartoony "
-            "children's game art for ages 4-10, soft pastel palette, thick friendly "
-            "outlines, no text or words anywhere."
+            "just the character cut out. Facing the viewer, centered, brave and "
+            f"likeable. The character is: {hero}. Style: {style}. {ART_DIRECTION}. "
+            "Thick confident outlines, no text or words anywhere."
         )
 
     # Background / story frame.
@@ -437,9 +480,9 @@ def _world_prompt(interpretation: dict, theme: str, scene_kind: str,
         "A wide 2D side-scrolling video game background - EMPTY SCENERY ONLY. "
         "ABSOLUTELY NO characters, no people, no animals, no creatures anywhere "
         "in the image: the player's character is drawn separately on top. "
-        "Leave the lower third open and uncluttered so a character can walk across it. "
-        f"Style: {style}. Cute cartoony children's game art for ages 4-10, soft "
-        "pastel palette, thick friendly outlines, no text or words anywhere. "
+        "Leave the lower third open and uncluttered so a character can walk across it "
+        "- the game draws the question over that band, so keep it simple there. "
+        f"Style: {style}. {ART_DIRECTION}. No text or words anywhere. "
         f"The scene contains: {_scenery_objects(interpretation)}. "
         f"Setting: {setting}.{rel_txt}{scene_txt} "
         "Whimsical and hand-made in spirit, but polished."

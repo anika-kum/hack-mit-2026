@@ -1,6 +1,25 @@
-/* ── Doodle Quest ────────────────────────────────────────────────────
+/* ── Do-IT-oodle ─────────────────────────────────────────────────────
    Frontend: drawing canvas, voice input, read-aloud, and the arrow-key
    adventure loop.
+
+   V3 (2026-09-19) — what the playtest changed:
+
+     FULL BLEED     the stage fills the viewport; the painted world IS the
+                    screen. Two reserved zones sit on it (narration at the
+                    top, the question in the lower third) and the hero's
+                    play band is computed from their measured rects, so
+                    nothing can ever cover anything. See syncSafeZones().
+
+     TRAVERSAL      you no longer get a question, you WALK to one. Every
+                    beat ships `traversal` and the question stays hidden
+                    until the arrow keys have carried the hero across it.
+                    Some beats are interludes: pure movement, no maths.
+
+     FREE RESPONSE  typed numeric answers alongside the cards. Never for
+                    ages 4-6 - the backend simply never sends them one.
+
+     BRANDING       everything about the product's identity lives in
+                    brand.js. This file only applies it (applyBrand).
 
    Rendering contract (all fields OPTIONAL — the backend is a moving
    target, so every reader below has a defined fallback):
@@ -60,6 +79,67 @@ function field(obj, key) {
   return (obj && typeof obj === 'object') ? obj[key] : undefined;
 }
 
+/* ═══════════════════ 0. THE BRAND ═══════════════════
+   Everything about the product's identity lives in brand.js. This applies
+   it to the chrome and stops there — the brand never reaches inside the
+   game stage, where the child's own world is the only thing on screen.
+
+   Seams: swap brand.js. Nothing below names the product. */
+
+const BRAND = (window.BRAND && typeof window.BRAND === 'object') ? window.BRAND : {
+  name: 'Do-IT-oodle',
+  wordmark: [{ t: 'Do-' }, { t: 'IT', em: true }, { t: '-oodle' }],
+  motto: 'Draw anything. Tell us what you want to learn. Your drawing becomes the game.',
+  assets: {}, colors: {},
+};
+
+function wordmarkHtml() {
+  const runs = Array.isArray(BRAND.wordmark) && BRAND.wordmark.length
+    ? BRAND.wordmark : [{ t: String(BRAND.name || 'Do-IT-oodle') }];
+  return runs.map((r) => {
+    const txt = escapeHtml(String((r && r.t) || ''));
+    return (r && r.em) ? `<span class="it">${txt}</span>` : `<span>${txt}</span>`;
+  }).join('');
+}
+
+function applyBrand() {
+  const name = String(BRAND.name || 'Do-IT-oodle');
+  try { document.title = name; } catch (e) { /* ignore */ }
+
+  // Mirror the brand colours into CSS custom properties so style.css can
+  // build the rest of the palette outward from them.
+  try {
+    const root = document.documentElement;
+    Object.keys(BRAND.colors || {}).forEach((k) => {
+      if (typeof BRAND.colors[k] === 'string') {
+        root.style.setProperty(`--brand-${k}`, BRAND.colors[k]);
+      }
+    });
+  } catch (e) { /* cosmetic */ }
+
+  document.querySelectorAll('[data-brand]').forEach((el) => {
+    const slot = el.getAttribute('data-brand');
+    try {
+      if (slot === 'wordmark') { el.innerHTML = wordmarkHtml(); el.setAttribute('aria-label', name); }
+      else if (slot === 'name') { el.textContent = name; }
+      else if (slot === 'motto') { el.textContent = String(BRAND.motto || ''); }
+      else if (slot === 'tagline') { el.textContent = String(BRAND.tagline || BRAND.motto || ''); }
+      else if (slot === 'logo' || slot === 'mark') {
+        const src = (BRAND.assets || {})[slot === 'logo' ? 'logo' : 'mark'];
+        if (src) {
+          el.src = src;
+          el.alt = slot === 'logo' ? name : '';
+          el.hidden = false;
+          // A missing asset must never leave a broken-image box next to the
+          // title — fall back to the live-text wordmark, which is always there.
+          el.addEventListener('error', () => { el.hidden = true; }, { once: true });
+          if (slot === 'mark') { const sp = $('loading-spinner'); if (sp) sp.hidden = true; }
+        }
+      }
+    } catch (e) { /* branding is chrome; never fatal */ }
+  });
+}
+
 const state = {
   sessionId: null,
   interpretation: null,
@@ -91,7 +171,9 @@ document.querySelectorAll('[data-goto]').forEach((b) =>
 
 const dc = $('draw-canvas');
 const dctx = dc.getContext('2d');
-const PALETTE = ['#4a3b52', '#ff8fb8', '#ffd24a', '#5fd0ae', '#6fc0ff', '#a98cff', '#ff9a6c', '#8bd45f'];
+/* The drawing pens. Warm-led and balanced, to match the de-gendered app
+   palette — see the palette note at the top of style.css. */
+const PALETTE = ['#33291F', '#F0965B', '#F4D372', '#6BA36A', '#3E85BE', '#5A6C88', '#C2643E', '#2E7E7B'];
 
 let brush = { color: PALETTE[0], size: 6, erasing: false };
 let drawing = false, undoStack = [];
@@ -277,8 +359,8 @@ function readChallengeAloud() {
 /* ═══════════════════════ 4. THEMES & SETUP ═══════════════════════ */
 
 const THEME_LABELS = {
-  storybook: '📖 Storybook', candy: '🍭 Candy', forest: '🌲 Forest',
-  ocean: '🌊 Ocean', space: '🚀 Space',
+  storybook: '📖 Storybook', woodland: '🌲 Woodland', coast: '🌊 Coast',
+  canyon: '🏜️ Canyon', starlight: '🌙 Starlight',
 };
 
 async function loadTopics() {
@@ -421,7 +503,8 @@ $('btn-bring-to-life').addEventListener('click', async () => {
 /* ═══════════════════════ 6. TOPIC PICKER ═══════════════════════ */
 
 const TOPIC_EMOJI = {
-  addition: '➕', subtraction: '➖', multiplication: '✖️', fractions: '🍕',
+  counting_and_comparing: '🔢', addition: '➕', subtraction: '➖',
+  time_and_money: '🪙', multiplication: '✖️', fractions: '🥧',
   decimals: '💧', geometry: '🔷', algebra: '🔑', speed_distance_time: '🏃',
 };
 const BAND_ORDER = ['k1', '23', '45'];
@@ -457,7 +540,14 @@ function renderTopics() {
 
 const gc = $('game-canvas');
 const gctx = gc.getContext('2d');
-const W = gc.width, H = gc.height;
+/* The stage is FULL BLEED, so the canvas backing store follows the window
+   instead of being a fixed 960x540 plate. W/H are therefore variables and
+   every drawing routine below reads them at call time. Capped so a 5K
+   display does not ask for a fifteen-megapixel repaint sixty times a
+   second — the world is watercolour, not a CAD model. */
+let W = gc.width, H = gc.height;
+const CANVAS_MAX_W = 2400, CANVAS_MAX_H = 1400;
+const CANVAS_MIN_W = 640, CANVAS_MIN_H = 360;
 
 let bgImage = null, spriteImage = null;
 let bgOutgoing = null;               // the frame we are fading OUT of
@@ -475,10 +565,104 @@ let running = false;
 
 let hero = { x: 90, y: 0, w: 58, h: 58, vx: 0, vy: 0, face: 1, bob: 0, sq: 0, bounce: 0 };
 
-const HERO_SPEED = 4.6;
+/* Tuned on a 960px plate. On a full-bleed 1600px stage the same number of
+   pixels per frame feels like wading, so speed scales with the canvas. */
+const HERO_SPEED_BASE = 4.6;
+function heroSpeed() { return HERO_SPEED_BASE * clamp(W / 960, 0.75, 2.1); }
 
 /* play area — the vertical band stones + hero live in. */
 let play = { top: 0.46 * H, bottom: 0.94 * H };
+
+/* ── THE RESERVED ZONES ───────────────────────────────────────────────
+   #zone-top (narration + chrome) and #zone-question (the question) are
+   pinned to the top and bottom of the stage. `safe` is what is LEFT: the
+   hero, the traversal track and any on-canvas stones are confined to it.
+
+   That is the whole non-overlap guarantee. A previous pass got it by
+   moving the answers below the art entirely; this keeps the guarantee
+   while putting them back ON the art, because the band is measured from
+   the real rects every frame-ish rather than assumed. */
+let safe = { top: 0.30, bottom: 0.96 };
+/* What the challenge itself asked for, before the zones clip it. */
+let wantedPlay = { top: 0.46, bottom: 0.94 };
+const SAFE_GAP = 10;                 // px of clear air below/above a zone
+
+function zoneFractions() {
+  const stage = $('stage');
+  if (!stage || !stage.getBoundingClientRect) return null;
+  const sr = stage.getBoundingClientRect();
+  if (!(sr.height > 0)) return null;
+  const read = (id, fallback) => {
+    const el = $(id);
+    if (!el || el.hidden || !el.getBoundingClientRect) return fallback;
+    const r = el.getBoundingClientRect();
+    if (!(r.height > 0)) return fallback;
+    return r;
+  };
+  const topR = read('zone-top', null);
+  const qR = read('zone-question', null);
+  const topF = topR ? clamp((topR.bottom - sr.top + SAFE_GAP) / sr.height, 0, 0.8) : 0.26;
+  const botF = qR ? clamp((qR.top - sr.top - SAFE_GAP) / sr.height, 0.2, 1) : 0.92;
+  return { top: topF, bottom: botF, stage: sr, topR, qR };
+}
+
+/* Keep at least this much of the stage walkable. If the chrome ever grows
+   enough to squeeze the middle out, the zones lose and the hero keeps a
+   strip — a hero you cannot see is worse than a cramped question box. */
+const MIN_BAND_FRAC = 0.16;
+
+function syncSafeZones() {
+  const f = zoneFractions();
+  if (!f) return;
+  let top = f.top;
+  let bottom = f.bottom;
+  if (bottom - top < MIN_BAND_FRAC) {
+    const mid = (top + bottom) / 2;
+    top = clamp(mid - MIN_BAND_FRAC / 2, 0, 1 - MIN_BAND_FRAC);
+    bottom = top + MIN_BAND_FRAC;
+  }
+  safe.top = top;
+  safe.bottom = bottom;
+  applyPlayBand();
+}
+
+/* Intersect what the challenge asked for with what the zones allow. */
+function applyPlayBand() {
+  const top = Math.max(wantedPlay.top, safe.top);
+  const bottom = Math.min(wantedPlay.bottom, safe.bottom);
+  play.top = clamp(top, 0, 0.95) * H;
+  play.bottom = clamp(bottom, 0.05, 1) * H;
+  if (play.bottom - play.top < 70) {
+    play.top = clamp(safe.top, 0, 0.9) * H;
+    play.bottom = Math.max(play.top + 70, clamp(safe.bottom, 0.1, 1) * H);
+  }
+  hero.y = clamp(hero.y, play.top - 30, Math.max(play.top, play.bottom - hero.h));
+}
+
+/* Resize the backing store to the stage, then rebuild everything that was
+   laid out in pixels. Cheap enough to run on every resize event. */
+let resizeTimer = null;
+function resizeStage() {
+  const stage = $('stage');
+  if (!stage || !stage.getBoundingClientRect) return;
+  const r = stage.getBoundingClientRect();
+  const w = Math.round(clamp(r.width || W, CANVAS_MIN_W, CANVAS_MAX_W));
+  const h = Math.round(clamp(r.height || H, CANVAS_MIN_H, CANVAS_MAX_H));
+  if (w === W && h === H) { syncSafeZones(); return; }
+  W = gc.width = w;
+  H = gc.height = h;
+  hero.w = hero.h = clamp(Math.round(58 * (W / 960)), 44, 96);
+  syncSafeZones();
+  try { layoutStones((state.challenge && state.challenge.stones) || []); } catch (e) { /* ignore */ }
+  try { layoutProps((state.challenge && state.challenge.props) || []); } catch (e) { /* ignore */ }
+  try { layoutWalk(); } catch (e) { /* ignore */ }
+  seedAmbient();
+}
+
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(resizeStage, 90);
+});
 
 /* ── camera: one background image, many scenes ───────────────────── */
 const CAMERAS = {
@@ -504,15 +688,15 @@ function easeCamera() {
 /* ── time of day ─────────────────────────────────────────────────── */
 const TINT_OVERLAY = {
   day: null,
-  dusk: 'rgba(255,170,90,.18)',
-  night: 'rgba(40,50,120,.32)',
+  dusk: 'rgba(224,145,58,.16)',
+  night: 'rgba(30,40,70,.34)',
 };
 let timeOfDay = 'day';
 
 const SKY_RAMPS = {
-  day:   ['#cfeaff', '#eaf7ff', '#dff6ec'],
-  dusk:  ['#ffc9a3', '#ffdfc4', '#f7d7e6'],
-  night: ['#2b3570', '#4a5596', '#6d6fa8'],
+  day:   ['#BBD8E8', '#E3EDE2', '#E8DCC2'],
+  dusk:  ['#E9A76F', '#F3CFA1', '#D9A98C'],
+  night: ['#232E4A', '#3B4A6B', '#57657F'],
 };
 
 /* ═══════════ 7b. STORY FRAMES — crossfade, never block ═══════════
@@ -1034,6 +1218,333 @@ function updateJourney() {
   if (row.classList) row.classList.toggle('arrived', journey.arrived);
 }
 
+
+/* ═══════════ 8b. ★ THE TRAVERSAL — you WALK to the question ★ ═══════
+
+   The loudest note from the playtest was that "the story is told through a
+   series of questions rather than some storyline in which the questions
+   happen to need to be answered." This is the fix.
+
+   Every beat arrives with a `traversal`: a handful of nodes strung across
+   the middle band of the screen. The child crosses them with the ARROW
+   KEYS — hop the stones, climb the ledges, shoulder the log — and only
+   when the last one is reached does the question appear. Some beats
+   (interludes) have no question at all: the walk IS the beat.
+
+   Clicking a node works too. That is not a cop-out: it keeps the game
+   playable on a tablet and gives a child with no keyboard a way through.
+   The keyboard is the default and the hint always names it.
+*/
+
+const walkState = {
+  active: false,     // are the arrow keys currently the whole game?
+  nodes: [],         // [{x, y, hit, pop}]
+  at: 0,             // index of the node we are heading for
+  spec: null,        // the server's traversal descriptor
+  gates: true,       // does a question wait at the end?
+  finishing: false,  // guard so finishWalk only fires once
+};
+
+const WALK_NODE_R = 26;
+const WALK_REACH = 1.15;             // how close counts as "on it"
+
+/* Node shapes by kind. Horizontal always; the vertical profile is what
+   makes hopping stones feel different from climbing a cliff. */
+function walkProfile(kind, t) {
+  switch (kind) {
+    case 'ledge':  return 0.86 - t * 0.72;          // climbing: up and away
+    case 'stones': return 0.5 + Math.sin(t * Math.PI * 2.1) * 0.30;
+    case 'reeds':  return 0.42 + Math.sin(t * Math.PI * 1.4) * 0.18;
+    case 'log':    return 0.58;
+    case 'gate':   return 0.5 + (t % 2 ? 0.16 : -0.16);
+    default:       return 0.55 + Math.sin(t * Math.PI) * 0.12;
+  }
+}
+
+function layoutWalk() {
+  const n = walkState.nodes.length;
+  if (!n) return;
+  const kind = (walkState.spec && walkState.spec.kind) || 'stones';
+  const r = clamp(WALK_NODE_R * (W / 960), 15, 40);
+  const x0 = W * 0.20, x1 = W * 0.88;
+  const bandTop = play.top + r;
+  const bandH = Math.max(40, (play.bottom - r) - bandTop);
+  walkState.nodes.forEach((node, i) => {
+    const t = n === 1 ? 0.5 : i / (n - 1);
+    node.x = lerp(x0, x1, t);
+    node.y = bandTop + clamp(walkProfile(kind, t), 0.05, 0.95) * bandH;
+    node.r = r;
+  });
+}
+
+function startTraversal(spec, gates) {
+  const steps = clamp(Math.round(num(field(spec, 'steps'), 3)), 1, 8);
+  walkState.spec = spec || {};
+  walkState.gates = !!gates;
+  walkState.at = 0;
+  walkState.finishing = false;
+  walkState.nodes = [];
+  for (let i = 0; i < steps; i++) walkState.nodes.push({ x: 0, y: 0, r: 20, hit: false, pop: 0 });
+  layoutWalk();
+  walkState.active = true;
+
+  // Park the hero just before the first node so the first arrow press
+  // visibly does something.
+  const first = walkState.nodes[0];
+  hero.x = clamp(first.x - hero.w * 2.2, 8, W - hero.w - 8);
+  hero.y = clamp(first.y - hero.h / 2, play.top - 20, play.bottom - hero.h);
+  hero.face = 1;
+
+  renderWalkBand();
+  showQuestionBox(false);
+}
+
+function renderWalkBand() {
+  const band = $('walk-band');
+  if (!band) return;
+  if (!walkState.active) { band.hidden = true; return; }
+  const spec = walkState.spec || {};
+  const n = walkState.nodes.length;
+  const noun = String(spec.noun || 'step');
+  const plural = /s$/.test(noun) ? noun : `${noun}s`;
+  const title = $('walk-title');
+  if (title) title.textContent = firstStr(spec.label, `${spec.verb || 'Cross'} the ${n} ${plural}`);
+  const hint = $('walk-hint');
+  if (hint) {
+    hint.innerHTML = `${escapeHtml(firstStr(spec.hint, 'Use the arrow keys'))} ` +
+      '<kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> ' +
+      '<span class="walk-or">· or tap the next one</span>';
+  }
+  const pips = $('walk-pips');
+  if (pips) {
+    pips.innerHTML = '';
+    walkState.nodes.forEach((node, i) => {
+      const el = document.createElement('i');
+      if (node.hit) el.className = 'done';
+      else if (i === walkState.at) el.className = 'now';
+      pips.appendChild(el);
+    });
+  }
+  band.hidden = false;
+  try { syncSafeZones(); } catch (e) { /* ignore */ }
+}
+
+function showQuestionBox(on) {
+  const box = $('question-box');
+  if (box) box.hidden = !on;
+  const band = $('walk-band');
+  if (band && on) band.hidden = true;
+  try { syncSafeZones(); } catch (e) { /* ignore */ }
+}
+
+/* One node crossed. */
+function hitWalkNode(i) {
+  const node = walkState.nodes[i];
+  if (!node || node.hit) return;
+  node.hit = true;
+  node.pop = 1;
+  walkState.at = Math.max(walkState.at, i + 1);
+  burst(node.x, node.y, '#F4D372', 9);
+  blip(430 + i * 55, 0.1, 'sine', 0.05);
+  hero.bounce = 1;
+  renderWalkBand();
+  if (walkState.nodes.every((nd) => nd.hit)) finishWalk();
+}
+
+function finishWalk() {
+  if (walkState.finishing) return;
+  walkState.finishing = true;
+  walkState.active = false;
+  const band = $('walk-band');
+  if (band) band.hidden = true;
+  sfxPick();
+
+  if (!walkState.gates) {
+    // An INTERLUDE: no question here at all. Beat the page over and move on.
+    setTimeout(() => { if (!state.locked) nextChallenge(); }, 620);
+    return;
+  }
+  revealQuestion();
+}
+
+/* The question only ever appears here — at the end of a walk. */
+function revealQuestion() {
+  showQuestionBox(true);
+  readChallengeAloud();
+  const c = state.challenge || {};
+  if (c.question_type === 'free_response') focusTypein();
+}
+
+function skipWalk() {
+  if (!walkState.active) return;
+  walkState.nodes.forEach((nd) => { nd.hit = true; });
+  walkState.at = walkState.nodes.length;
+  renderWalkBand();
+  finishWalk();
+}
+
+/* Movement. Only runs while the walk is live, so a child can still roam
+   the scene afterwards without accidentally re-triggering anything. */
+function updateWalk() {
+  if (!walkState.active) return;
+  const hx = hero.x + hero.w / 2;
+  const hy = hero.y + hero.h / 2;
+  // Nodes may be taken slightly out of order (a long jump lands two along)
+  // but never backwards, and never ahead of one still untouched.
+  for (let i = 0; i < walkState.nodes.length; i++) {
+    const node = walkState.nodes[i];
+    if (node.hit) continue;
+    if (i > walkState.at) break;
+    if (Math.hypot(hx - node.x, hy - node.y) < node.r * WALK_REACH + hero.w * 0.42) {
+      hitWalkNode(i);
+    }
+    break;
+  }
+}
+
+/* Tapping the next node walks to it. */
+function walkClickAt(cx, cy) {
+  if (!walkState.active) return false;
+  for (let i = 0; i < walkState.nodes.length; i++) {
+    const node = walkState.nodes[i];
+    if (node.hit) continue;
+    if (Math.hypot(cx - node.x, cy - node.y) < node.r * 2.2) {
+      hero.x = clamp(node.x - hero.w / 2, 0, W - hero.w);
+      hero.y = clamp(node.y - hero.h / 2, play.top - 20, play.bottom - hero.h);
+      hitWalkNode(i);
+      return true;
+    }
+    break;
+  }
+  return false;
+}
+
+/* The track, painted into the middle band — between the two zones, so it
+   is always fully visible and never under the question. */
+const WALK_ART = {
+  stones: { fill: '#D9CDB6', edge: '#9B8768', done: '#CFE6CB', doneEdge: '#6BA36A' },
+  ledge:  { fill: '#CBB59A', edge: '#8A7254', done: '#F8D2BF', doneEdge: '#F0965B' },
+  log:    { fill: '#C9A277', edge: '#8A6440', done: '#E6D2A8', doneEdge: '#E0913A' },
+  gate:   { fill: '#CDD8E4', edge: '#5A6C88', done: '#CFE4F6', doneEdge: '#3E85BE' },
+  reeds:  { fill: '#D2DFBB', edge: '#7E9B4E', done: '#DDE7C8', doneEdge: '#6BA36A' },
+  path:   { fill: '#DBCDB4', edge: '#9B8768', done: '#FBE7B4', doneEdge: '#E0913A' },
+};
+
+function drawWalkTrack() {
+  if (!walkState.active && !walkState.nodes.length) return;
+  const art = WALK_ART[(walkState.spec && walkState.spec.kind) || 'path'] || WALK_ART.path;
+
+  // the dotted line of intent, from node to node
+  gctx.save();
+  gctx.strokeStyle = 'rgba(255,248,238,.55)';
+  gctx.lineWidth = Math.max(2, W / 420);
+  gctx.setLineDash([Math.max(6, W / 150), Math.max(8, W / 110)]);
+  gctx.lineDashOffset = -tick * 0.7;
+  gctx.beginPath();
+  walkState.nodes.forEach((nd, i) => {
+    if (i === 0) gctx.moveTo(nd.x, nd.y); else gctx.lineTo(nd.x, nd.y);
+  });
+  gctx.stroke();
+  gctx.restore();
+  gctx.setLineDash([]);
+
+  walkState.nodes.forEach((nd, i) => {
+    if (nd.pop > 0) nd.pop = Math.max(0, nd.pop - 0.04);
+    const next = walkState.active && i === walkState.at && !nd.hit;
+    const r = nd.r * (1 + nd.pop * 0.25);
+    groundShadow(nd.x, nd.y + r * 0.82, r * 0.9, Math.max(4, r * 0.28), 0.2);
+    if (next) {
+      const pulse = 0.5 + 0.5 * Math.sin(tick / 11);
+      glowAt(nd.x, nd.y, r * (2.1 + pulse * 0.5),
+             `rgba(244,211,114,${0.26 + pulse * 0.18})`, 'rgba(244,211,114,0)');
+    }
+    gctx.beginPath();
+    gctx.ellipse(nd.x, nd.y, r, r * 0.74, 0, 0, TAU);
+    fillStroke(vGrad(nd.y - r, nd.y + r, nd.hit ? art.done : art.fill,
+                     darken(nd.hit ? art.done : art.fill, 0.84)),
+               nd.hit ? art.doneEdge : art.edge, Math.max(2.5, r * 0.13));
+    gctx.save();
+    gctx.globalAlpha = 0.5;
+    ellipse(nd.x - r * 0.2, nd.y - r * 0.3, r * 0.42, r * 0.16, '#FFFDF4', null, 0, -0.3);
+    gctx.restore();
+    gctx.globalAlpha = 1;
+    if (nd.hit) {
+      gctx.fillStyle = art.doneEdge;
+      gctx.font = `800 ${Math.round(r * 0.9)}px 'Baloo 2', sans-serif`;
+      gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
+      gctx.fillText('✓', nd.x, nd.y);
+    } else if (next) {
+      // a little bouncing chevron: GO HERE
+      const bob = Math.sin(tick / 9) * r * 0.16;
+      gctx.strokeStyle = '#FFF8EE';
+      gctx.lineWidth = Math.max(3, r * 0.16);
+      gctx.lineCap = 'round'; gctx.lineJoin = 'round';
+      gctx.beginPath();
+      gctx.moveTo(nd.x - r * 0.42, nd.y - r * 1.5 + bob);
+      gctx.lineTo(nd.x, nd.y - r * 1.05 + bob);
+      gctx.lineTo(nd.x + r * 0.42, nd.y - r * 1.5 + bob);
+      gctx.stroke();
+    }
+  });
+}
+
+/* ═══════════ 8c. ★ FREE RESPONSE — typed answers ★ ═══════════
+   Short numeric answers only, a big target, Enter submits. The backend
+   never sends one to ages 4-6, so there is no band check needed here. */
+
+function typeinActive() {
+  const box = $('typein');
+  return !!(box && !box.hidden);
+}
+
+function focusTypein() {
+  const input = $('typein-input');
+  if (!input || !input.focus) return;
+  // A beat later, so the reveal animation does not fight the scroll.
+  setTimeout(() => { try { input.focus(); input.select && input.select(); } catch (e) { /* ignore */ } }, 90);
+}
+
+function setupTypein(challenge) {
+  const box = $('typein');
+  const input = $('typein-input');
+  const unit = $('typein-unit');
+  const tray = $('answer-tray');
+  if (!box || !input) return;
+  const isType = challenge && challenge.question_type === 'free_response';
+  box.hidden = !isType;
+  if (tray && isType) tray.hidden = true;
+  if (!isType) return;
+  input.value = '';
+  input.className = 'typein-input';
+  input.disabled = false;
+  const places = num(challenge.decimals, 0);
+  input.placeholder = places > 0 ? (0).toFixed(places) : '?';
+  input.setAttribute('inputmode', places > 0 ? 'decimal' : 'numeric');
+  if (unit) {
+    const u = firstStr(challenge.unit);
+    unit.textContent = u;
+    unit.hidden = !u;
+  }
+}
+
+function submitTypein() {
+  if (state.locked) return;
+  const input = $('typein-input');
+  if (!input) return;
+  const raw = String(input.value || '').trim();
+  if (!raw) {
+    // Never punish an empty box — just ask again.
+    input.classList.remove('wrong');
+    void input.offsetWidth;
+    input.classList.add('wrong');
+    blip(300, 0.1, 'triangle', 0.04);
+    setTimeout(() => { try { input.classList.remove('wrong'); } catch (e) { /* ignore */ } }, 500);
+    focusTypein();
+    return;
+  }
+  submitAnswer(raw);
+}
+
 /* ═══════════════════════ 8. CHALLENGE ═══════════════════════ */
 
 async function startGame(topic) {
@@ -1059,12 +1570,26 @@ async function startGame(topic) {
     );
     captureJourney(data);
     applyFrameFromResponse(data);
-    applyChallenge(data.challenge, data.stats);
+    // Show the stage BEFORE laying anything out: the zones have no size
+    // while the section is display:none, so the walkable band would be
+    // measured off a zero-height rect and the hero would start nowhere.
     show('screen-game');
+    resizeStage();
+    applyChallenge(data.challenge, data.stats);
     if (!running) { running = true; requestAnimationFrame(loop); }
-    // The quest opening sets the scene before the first puzzle.
+    // The quest opening sets the scene, then the first chapter takes over
+    // the ribbon. Both are read aloud; neither covers the question.
     if (data.opening) {
-      setTimeout(() => showNarration(data.opening, questTitle() || 'Your quest', 5200), 420);
+      const firstIntro = firstStr(field(field(data.challenge, 'beat'), 'intro'));
+      showNarration(data.opening, questTitle() || 'Your quest');
+      if (firstIntro) {
+        const issued = data.challenge;
+        setTimeout(() => {
+          if (state.challenge === issued) {
+            showNarration(firstIntro, field(field(issued, 'beat'), 'title') || 'Chapter 1');
+          }
+        }, 5200);
+      }
     }
   } catch (err) {
     alert(`Could not start that adventure: ${err.message}`);
@@ -1144,8 +1669,10 @@ function finishQuest(data) {
 const MODE_HINTS = {
   single_choice: '👆 Tap the answer you think is right',
   multi_select: '👆 Tap every answer you want · tap again to un-pick · then <b>Lock it in ✓</b>',
-  collect_count: '👆 Tap the treasures to collect them — or walk over them with <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd>',
-  ordered_path: '👆 Tap the stones <b>in order</b> — or walk the path yourself! A wrong one just bounces back.',
+  collect_count: '👆 Tap to take exactly the right number — leave the spares behind',
+  ordered_path: '👆 Tap the stones <b>in order</b> — a wrong one just bounces back',
+  free_response: '⌨️ Type your answer and press <kbd>Enter</kbd>',
+  interlude: '⌨️ No question here — just keep going',
 };
 
 let lastBeatKey = null;
@@ -1163,11 +1690,14 @@ function applyChallenge(challenge, stats) {
   orderUnenforced = false;
   if (stats) updateStats(stats);
 
-  /* ── play area ── */
+  /* ── play area ──
+     What the challenge asks for, INTERSECTED with what the reserved zones
+     leave free. applyPlayBand does the intersection; syncSafeZones keeps
+     it true as the chrome grows and shrinks. */
   const pa = challenge.play_area || {};
-  play.top = clamp(num(pa.top_pct, 0.46), 0.05, 0.9) * H;
-  play.bottom = clamp(num(pa.bottom_pct, 0.94), 0.15, 1) * H;
-  if (play.bottom - play.top < 90) play.bottom = Math.min(H, play.top + 90);
+  wantedPlay.top = clamp(num(pa.top_pct, 0.46), 0.05, 0.9);
+  wantedPlay.bottom = clamp(num(pa.bottom_pct, 0.94), 0.15, 1);
+  syncSafeZones();
 
   /* ── beat / chapter ── */
   applyBeat(challenge.beat);
@@ -1182,35 +1712,62 @@ function applyChallenge(challenge, stats) {
   if (newSprite) { try { adoptSprite(newSprite); } catch (e) { /* keep the old hero */ } }
   try { updateJourney(); } catch (e) { /* ditto */ }
 
-  /* ── ★ THE PROBLEM — always rendered, in its own loud banner ★ ── */
+  const interlude = isInterlude(challenge);
+
+  /* ── ★ THE QUESTION — its own big, bold, persistent region ★ ── */
   const promptText = challenge.prompt || challenge.question || '…';
   $('problem-text').textContent = promptText;
-
-  /* ── story narration lives in its own bar, side by side ── */
-  $('story-text').textContent = challenge.narrative || 'Let’s go!';
-  $('story-avatar').textContent = TOPIC_EMOJI[challenge.topic] || heroEmoji();
+  $('story-avatar').textContent = heroEmoji();
+  const box = $('question-box');
+  if (box && box.classList) box.classList.toggle('finale', !!field(challenge.beat, 'is_finale'));
+  const eyebrow = $('question-eyebrow');
+  if (eyebrow) {
+    eyebrow.textContent = field(challenge.beat, 'is_finale')
+      ? 'The final challenge' : 'Your question';
+  }
 
   /* ── controls hint depends on the interaction mode ── */
   const qt = questionType();
   $('controls-hint').innerHTML = MODE_HINTS[qt] || MODE_HINTS.single_choice;
 
   $('selected-row').innerHTML = '';
-  layoutStones(challenge.stones || []);
-  layoutProps(challenge.props);
+  layoutStones(interlude ? [] : (challenge.stones || []));
+  layoutProps(interlude ? [] : challenge.props);
+  setupTypein(challenge);
   renderAnswerTray();          // ★ the answers are DOM cards, not painted blobs
   renderSelected();
 
-  // Far enough in that the (much larger) hero is never clipped by the
-  // left edge of the plate, and never standing on the first stone.
-  hero.x = 52;
-  hero.y = clamp(play.bottom - hero.h - 14, play.top, H - hero.h);
-  hero.face = 1;
+  /* ── ★ MOVEMENT GATES THE QUESTION ★ ──
+     The question box stays hidden until the hero has walked the traversal.
+     No traversal in the payload (an older server) → show it immediately,
+     so the game degrades to exactly what it used to be. */
+  const tv = challenge.traversal;
+  if (tv && num(tv.steps, 0) >= 1) {
+    startTraversal(tv, !interlude);
+  } else {
+    walkState.active = false;
+    walkState.nodes = [];
+    const band = $('walk-band');
+    if (band) band.hidden = true;
+    hero.x = clamp(W * 0.06, 8, W - hero.w - 8);
+    hero.y = clamp(play.bottom - hero.h - 14, play.top, H - hero.h);
+    hero.face = 1;
+    if (interlude) setTimeout(() => { if (!state.locked) nextChallenge(); }, 900);
+    else revealQuestion();
+  }
+}
 
-  readChallengeAloud();
+/* A beat with no question: walked, never answered. */
+function isInterlude(challenge) {
+  return !!challenge && (challenge.question_type === 'interlude'
+    || challenge.grade_mode === 'none'
+    || field(field(challenge, 'beat'), 'is_interlude') === true);
 }
 
 function questionType() {
   const c = state.challenge || {};
+  if (isInterlude(c)) return 'interlude';
+  if (c.question_type === 'free_response' || c.grade_mode === 'value') return 'free_response';
   const known = ['single_choice', 'multi_select', 'collect_count', 'ordered_path'];
   if (known.includes(c.question_type)) return c.question_type;
   // unknown / missing → infer from grade_mode, else degrade to multi_select
@@ -1252,8 +1809,8 @@ function applyBeat(beat) {
     // A new chapter is a new PAGE. Mid-beat picture swaps keep the canvas
     // crossfade; only a beat change turns the leaf.
     if (hadPage) playPageTurn();
-    if (beat.intro) showNarration(beat.intro, `Chapter ${shown}`, 3600);
   }
+  if (beat.intro) showNarration(beat.intro, beat.title || `Chapter ${shown}`);
 }
 
 /* ── the page turn ───────────────────────────────────────────────────
@@ -1265,7 +1822,7 @@ let pageTurnTimer = null;
 function playPageTurn() {
   try {
     const turn = $('page-turn');
-    const book = $('storybook');
+    const book = $('stage');
     if (!turn || !turn.classList) return;
     turn.classList.remove('turn');
     if (book && book.classList) book.classList.remove('page-changing');
@@ -1289,19 +1846,33 @@ function setTimeOfDay(t) {
   if (next !== timeOfDay) { timeOfDay = next; seedAmbient(); }
 }
 
-let narrationTimer = null;
-function showNarration(text, badge, ms = 3200) {
-  const card = $('narration-card');
-  $('narration-text').textContent = text;
-  $('narration-badge').textContent = badge || 'Story';
-  card.hidden = false;
-  requestAnimationFrame(() => card.classList.add('show'));
-  clearTimeout(narrationTimer);
-  narrationTimer = setTimeout(() => {
-    card.classList.remove('show');
-    setTimeout(() => { card.hidden = true; }, 450);
-  }, ms);
-  speak(text);
+/* ── ★ THE STORY LINE ★ ────────────────────────────────────────────
+   It used to be a card that appeared OVER the question for about three
+   seconds and then vanished — too brief to read and in the way while it
+   lasted. Now the prose floats to the top of the screen and STAYS there
+   for the whole beat, in its own region, while the question sits in its
+   own region below. Two persistent zones; neither can cover the other.
+
+   The `ms` argument is kept so every existing call site still works, but
+   it no longer hides anything — it only decides whether this line is
+   important enough to interrupt the read-aloud. */
+function showNarration(text, badge, ms) {
+  const txt = String(text == null ? '' : text).trim();
+  if (!txt) return;
+  const ribbon = $('story-ribbon');
+  const body = $('story-text');
+  const eyebrow = $('story-eyebrow');
+  if (body) body.textContent = txt;
+  if (eyebrow) eyebrow.textContent = badge || 'Story';
+  if (ribbon && ribbon.classList) {
+    ribbon.classList.remove('fresh');
+    void ribbon.offsetWidth;                 // restart the little settle
+    ribbon.classList.add('fresh');
+  }
+  // Keep the walkable band honest: a two-line story pushes the ribbon
+  // taller, which must push the hero down rather than under it.
+  try { syncSafeZones(); } catch (e) { /* ignore */ }
+  speak(txt);
 }
 
 function updateStats(stats) {
@@ -1315,13 +1886,17 @@ function updateStats(stats) {
 
 /* ═══════════════════════ 9. LAYOUT ═══════════════════════ */
 
+/* The backend's tint NAMES are a stable contract (math_engine.TINTS), so
+   they stay; the COLOURS behind them moved off pastel. "lav" is now slate
+   blue and "pink" is a clay rose — both still distinguishable from each
+   other and from everything else, which is all the puzzles require. */
 const TINT_HEX = {
-  mint: '#b6f0d8', lemon: '#fff2bf', sky: '#cfe8ff', lav: '#e0d7ff',
-  peach: '#ffe0cc', pink: '#ffd3e2', sage: '#d8eec4', coral: '#ffd5cc',
+  mint: '#CFE6CB', lemon: '#FBE7B4', sky: '#CFE4F6', lav: '#D7DEE9',
+  peach: '#F8D2BF', pink: '#F3CCD2', sage: '#DDE7C8', coral: '#F6D2C0',
 };
 const TINT_EDGE = {
-  mint: '#5fd0ae', lemon: '#ffd24a', sky: '#6fc0ff', lav: '#a98cff',
-  peach: '#ff9a6c', pink: '#ff8fb8', sage: '#8bd45f', coral: '#ff8f7a',
+  mint: '#6BA36A', lemon: '#E0913A', sky: '#3E85BE', lav: '#5A6C88',
+  peach: '#F0965B', pink: '#C2566B', sage: '#7E9B4E', coral: '#D97A4E',
 };
 
 function baseStone(s, i) {
@@ -1763,7 +2338,7 @@ function onAnswerClick(id, group) {
     state.selected = [];
     s.picked = true; s.pop = 1;
     selAdd(s.id);
-    pickBurst(s, '#5fd0ae');
+    pickBurst(s, '#6BA36A');
     sfxPick();
     renderSelected();
     setTimeout(submitAnswer, 340);
@@ -1779,7 +2354,7 @@ function onAnswerClick(id, group) {
   } else {
     s.picked = true; s.pop = 1;
     selAdd(s.id);
-    pickBurst(s, qt === 'collect_count' ? '#ffd24a' : '#5fd0ae', qt === 'collect_count' ? 10 : 11);
+    pickBurst(s, qt === 'collect_count' ? '#F4D372' : '#6BA36A', qt === 'collect_count' ? 10 : 11);
     sfxPick();
   }
   renderSelected();
@@ -1787,13 +2362,65 @@ function onAnswerClick(id, group) {
 
 /* ═══════════════════════ 10. INPUT ═══════════════════════ */
 
+/* Is the child typing right now? If so the keyboard belongs to them and
+   not to the game — no arrow-key movement, no space-to-lock, no
+   preventDefault stealing their cursor keys inside the box. */
+function typingNow() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = (el.tagName || '').toLowerCase();
+  return tag === 'input' || tag === 'textarea' || el.isContentEditable === true;
+}
+
 window.addEventListener('keydown', (e) => {
   if (!$('screen-game').classList.contains('active')) return;
+  if (typingNow()) {
+    // Enter submits from inside the box; everything else is theirs.
+    if (e.key === 'Enter') { e.preventDefault(); submitTypein(); }
+    return;
+  }
   keys[e.key] = true;
   if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
-  if (e.key === ' ' && !state.locked) submitAnswer();
+  if (state.locked) return;
+  if (e.key === 'Enter' && typeinActive()) { focusTypein(); return; }
+  // While walking, Space is a nudge onward rather than a submit - there is
+  // nothing to submit yet, and a five-year-old WILL hit it.
+  if (e.key === ' ') {
+    if (walkState.active) nudgeWalk();
+    else if (!typeinActive()) submitAnswer();
+  }
 });
 window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+/* Space during a walk: a small assisted hop toward the next node. Keeps a
+   child who mashes the biggest key on the keyboard from getting stuck. */
+function nudgeWalk() {
+  const node = walkState.nodes[walkState.at];
+  if (!node) return;
+  const dx = node.x - (hero.x + hero.w / 2);
+  const dy = node.y - (hero.y + hero.h / 2);
+  const m = Math.hypot(dx, dy) || 1;
+  const step = Math.min(m, hero.w * 1.4);
+  hero.x = clamp(hero.x + (dx / m) * step, 0, W - hero.w);
+  hero.y = clamp(hero.y + (dy / m) * step, play.top - 20, play.bottom - hero.h);
+  if (dx) hero.face = Math.sign(dx) || hero.face;
+  hero.bounce = 1;
+}
+
+/* Tap the next node to move onto it — the touch path for the traversal. */
+gc.addEventListener('pointerdown', (e) => {
+  if (!walkState.active) return;
+  const r = gc.getBoundingClientRect();
+  if (!(r.width > 0) || !(r.height > 0)) return;
+  const cx = (e.clientX - r.left) * (W / r.width);
+  const cy = (e.clientY - r.top) * (H / r.height);
+  walkClickAt(cx, cy);
+});
+
+$('btn-walk-skip').addEventListener('click', () => { skipWalk(); });
+
+$('typein').addEventListener('submit', (e) => { e.preventDefault(); submitTypein(); });
+$('typein-submit').addEventListener('click', (e) => { e.preventDefault(); submitTypein(); });
 
 $('btn-skip').addEventListener('click', () => {
   if (state.locked) return;
@@ -1839,7 +2466,7 @@ function toggleGroup(g) {
     if (turningOn) { selAdd(s.id); s.pop = 1; } else selRemove(s.id);
   });
   if (turningOn) {
-    members.forEach((s) => pickBurst(s, '#5fd0ae', 6));
+    members.forEach((s) => pickBurst(s, '#6BA36A', 6));
     sfxPick();
   } else {
     blip(360, 0.08, 'sine', 0.04);
@@ -1872,7 +2499,7 @@ function checkCollectPickups() {
     if (d < s.r + 20) {
       s.picked = true; s.pop = 1;
       selAdd(s.id);
-      burst(s.x, s.y, '#ffd24a', 10);
+      burst(s.x, s.y, '#F4D372', 10);
       sfxPick();
       changed = true;
     }
@@ -1939,7 +2566,7 @@ function orderedPick(s) {
   }
   s.picked = true; s.pop = 1;
   selAdd(s.id);
-  pickBurst(s, '#a98cff', 9);
+  pickBurst(s, '#2E7E7B', 9);
   blip(540 + state.selected.length * 70, 0.12, 'sine', 0.05);
   ropeGlow = 1;
   renderSelected();
@@ -1981,6 +2608,7 @@ function bounceHeroAway(s) {
    painting. When the answers live in the tray the hero is free to roam
    the scene without accidentally answering the question. */
 function checkPickups() {
+  if (walkState.active) return;          // the walk owns the arrow keys
   if (state.locked || !state.challenge || !stones.length) return;
   const mode = canvasStoneMode();
   if (mode === 'none') return;
@@ -2037,8 +2665,11 @@ function updateProgressHud() {
 
 /* ═══════════════════════ 12. ANSWER ═══════════════════════ */
 
-async function submitAnswer() {
-  if (state.locked || state.selected.length === 0) return;
+async function submitAnswer(typed) {
+  const isTyped = typeof typed === 'string' && typed.trim() !== '';
+  if (state.locked) return;
+  if (!isTyped && state.selected.length === 0) return;
+  if (isInterlude(state.challenge)) return;   // nothing to answer here
   state.locked = true;
   hushSpeech();
 
@@ -2049,6 +2680,7 @@ async function submitAnswer() {
       body: JSON.stringify({
         session_id: state.sessionId,
         stone_ids: state.selected.slice(),   // ORDER PRESERVED for order mode
+        typed: isTyped ? typed.trim() : null,
       }),
     });
     const data = await res.json();
@@ -2077,8 +2709,19 @@ async function submitAnswer() {
     // Repaint the tray so the cards themselves show right / wrong.
     try { syncAnswerTray(); } catch (e) { /* ignore */ }
 
+    // Free response: mark the box, and show the worked value when wrong.
+    const input = $('typein-input');
+    if (input && typeinActive()) {
+      input.disabled = true;
+      input.className = `typein-input ${data.correct ? 'right' : 'wrong'}`;
+      if (!data.correct && data.answer_value !== undefined && data.answer_value !== null) {
+        const places = num(field(state.challenge, 'decimals'), 0);
+        input.value = Number(data.answer_value).toFixed(places);
+      }
+    }
+
     if (data.correct) {
-      stones.filter((s) => s.reveal === 'good').forEach((s) => pickBurst(s, '#ffd24a', 18));
+      stones.filter((s) => s.reveal === 'good').forEach((s) => pickBurst(s, '#F4D372', 18));
       sfxWin();
     } else {
       sfxNope();
@@ -2100,10 +2743,13 @@ async function submitAnswer() {
     const beat = state.challenge && state.challenge.beat;
     const outro = data.beat_result || (beat && beat.on_success) || '';
     if (data.correct && outro) {
-      setTimeout(() => showNarration(outro, data.is_final_beat ? 'At last' : 'And then…', 3400), 900);
-      setTimeout(nextChallenge, 4600);
+      // The "And then…" line floats up to the ribbon and STAYS there while
+      // the next question is walked to and answered — it is not a flash
+      // card any more.
+      setTimeout(() => showNarration(outro, data.is_final_beat ? 'At last' : 'And then…'), 700);
+      setTimeout(nextChallenge, 3600);
     } else {
-      setTimeout(nextChallenge, data.correct ? 2200 : 3600);
+      setTimeout(nextChallenge, data.correct ? 2000 : 3400);
     }
   } catch (e) {
     showToast('Hmm, we lost the connection!', 'Try again in a moment.', 'bad');
@@ -2168,7 +2814,7 @@ function drawAmbient() {
       const blink = Math.max(0, Math.sin(t * 1.7 + p.ph));
       gctx.globalAlpha = 0.25 + blink * 0.7;
       gctx.fillStyle = '#ffe98a';
-      gctx.shadowColor = '#ffd24a'; gctx.shadowBlur = 12;
+      gctx.shadowColor = '#F4D372'; gctx.shadowBlur = 12;
       gctx.beginPath(); gctx.arc(p.x, p.y, p.r * 1.3, 0, TAU); gctx.fill();
       gctx.shadowBlur = 0;
     } else {
@@ -2367,8 +3013,8 @@ function drawProceduralWorld() {
 
   // ── far hills ──
   const horizon = play.top - 58;
-  hillBand(horizon + 8, 54, 190, shade('#b9d9ea', '#c69bb5', '#41508f'), px * 55, zoom);
-  hillBand(horizon + 34, 42, 140, shade('#a8dcc8', '#e0a98f', '#3c4a7e'), px * 95, zoom);
+  hillBand(horizon + 8, 54, 190, shade('#A8C4CE', '#C79B7C', '#3A4664'), px * 55, zoom);
+  hillBand(horizon + 34, 42, 140, shade('#9FC49A', '#D9A075', '#33405C'), px * 95, zoom);
 
   // ── mid scenery: trees along the hill line ──
   const treeY = horizon + 52;
@@ -2380,8 +3026,8 @@ function drawProceduralWorld() {
   // ── ground ──
   const groundTop = play.top + 6;
   const g = gctx.createLinearGradient(0, groundTop, 0, H);
-  g.addColorStop(0, shade('#a9e2c2', '#e8bd9c', '#4d5f96'));
-  g.addColorStop(1, shade('#8ed0ab', '#d8a184', '#3e4d7d'));
+  g.addColorStop(0, shade('#A9CE93', '#E0B489', '#42536F'));
+  g.addColorStop(1, shade('#8CB577', '#CE9970', '#35425A'));
   gctx.fillStyle = g;
   gctx.beginPath();
   gctx.moveTo(0, H);
@@ -2394,7 +3040,7 @@ function drawProceduralWorld() {
   drawWater(play.bottom + 6, Math.max(26, H - play.bottom - 2), t);
 
   // ── grass tufts ──
-  gctx.strokeStyle = shade('rgba(92,168,128,.75)', 'rgba(150,105,80,.7)', 'rgba(60,80,130,.7)');
+  gctx.strokeStyle = shade('rgba(96,146,86,.75)', 'rgba(150,105,80,.7)', 'rgba(60,76,110,.7)');
   gctx.lineWidth = 2.4;
   gctx.lineCap = 'round';
   for (let i = 0; i < 46; i++) {
@@ -2442,9 +3088,9 @@ function hillBand(baseY, amp, wavelen, color, pan, zoom) {
 }
 
 function miniTree(x, y, s) {
-  gctx.fillStyle = shade('#b98c6c', '#9c6f52', '#4a4468');
+  gctx.fillStyle = shade('#9C7350', '#8A6144', '#453F58');
   gctx.fillRect(x - 4 * s, y, 8 * s, 34 * s);
-  const leaf = shade('#8fd4a4', '#d79b7e', '#415680');
+  const leaf = shade('#7FB877', '#C88C6A', '#3B4C6B');
   circle(x, y - 6 * s, 24 * s, leaf, null);
   circle(x - 17 * s, y + 8 * s, 17 * s, leaf, null);
   circle(x + 17 * s, y + 8 * s, 17 * s, leaf, null);
@@ -2453,8 +3099,8 @@ function miniTree(x, y, s) {
 function drawWater(y, h, t) {
   if (h <= 4) return;
   const wg = gctx.createLinearGradient(0, y, 0, y + h);
-  wg.addColorStop(0, shade('#8fd7f2', '#e2a9c6', '#33427f'));
-  wg.addColorStop(1, shade('#5fbfe2', '#c98aae', '#26315f'));
+  wg.addColorStop(0, shade('#8CC6DC', '#D79E86', '#2C3A5C'));
+  wg.addColorStop(1, shade('#5FA8C6', '#BE8368', '#222C46'));
   gctx.fillStyle = wg;
   gctx.fillRect(0, y, W, h);
 
@@ -2489,7 +3135,7 @@ function drawWater(y, h, t) {
 function drawVignette() {
   const v = gctx.createRadialGradient(W / 2, H / 2, H * 0.38, W / 2, H / 2, H * 0.86);
   v.addColorStop(0, 'rgba(0,0,0,0)');
-  v.addColorStop(1, timeOfDay === 'night' ? 'rgba(12,16,42,.42)' : 'rgba(92,70,100,.20)');
+  v.addColorStop(1, timeOfDay === 'night' ? 'rgba(14,18,34,.44)' : 'rgba(80,58,38,.22)');
   gctx.fillStyle = v;
   gctx.fillRect(0, 0, W, H);
 }
@@ -2731,7 +3377,7 @@ const PROP_DRAW = {
     gctx.beginPath();
     gctx.arc(x, y - 40 * s, 40 * s, Math.PI, 0);
     gctx.lineWidth = 13 * s; gctx.strokeStyle = '#cbb6e0'; gctx.stroke();
-    gctx.strokeStyle = '#a98cff'; gctx.lineWidth = 3 * s;
+    gctx.strokeStyle = '#2E7E7B'; gctx.lineWidth = 3 * s;
     gctx.beginPath(); gctx.arc(x, y - 40 * s, 46 * s, Math.PI, 0); gctx.stroke();
   },
   pie_gate(x, y, s, label) {
@@ -2757,7 +3403,7 @@ const PROP_DRAW = {
     });
   },
   clock(x, y, s) {
-    circle(x, y, 28 * s, '#fffaf0', '#a98cff', 4 * s);
+    circle(x, y, 28 * s, '#fffaf0', '#2E7E7B', 4 * s);
     gctx.strokeStyle = '#7d6b86'; gctx.lineWidth = 3 * s; gctx.lineCap = 'round';
     const t = tick / 60;
     gctx.beginPath(); gctx.moveTo(x, y);
@@ -2810,7 +3456,7 @@ const PROP_DRAW = {
     sheen(x - 3.5 * s, y + 2 * s, 3.2 * s, 5 * s, -0.3, 0.8);
   },
   tick(x, y, s) {
-    circle(x, y, 17 * s, '#b6f0d8', '#5fd0ae', 3 * s);
+    circle(x, y, 17 * s, '#b6f0d8', '#6BA36A', 3 * s);
     gctx.strokeStyle = '#3aa580'; gctx.lineWidth = 4 * s; gctx.lineCap = 'round';
     gctx.beginPath();
     gctx.moveTo(x - 7 * s, y); gctx.lineTo(x - 2 * s, y + 6 * s); gctx.lineTo(x + 8 * s, y - 6 * s);
@@ -2821,7 +3467,7 @@ const PROP_DRAW = {
     drawCreature(x, y, 42 * s, {
       species,
       color: TINT_HEX[['mint', 'lav', 'peach', 'sky'][Math.floor((seed || 0) * 2.1) % 4]] || '#e0d7ff',
-      accent: '#a98cff',
+      accent: '#2E7E7B',
       t: tick / 60, face: -1, bounce: Math.sin(tick / 26 + (seed || 0)) * 0.05,
     });
     if (label) {
@@ -2833,11 +3479,11 @@ const PROP_DRAW = {
   },
   tree(x, y, s) {
     ellipse(x, y + 34 * s, 28 * s, 8 * s, 'rgba(74,59,82,.16)', null);
-    gctx.fillStyle = shade('#b98c6c', '#9c6f52', '#5a5378');
+    gctx.fillStyle = shade('#9C7350', '#8A6144', '#4F4A62');
     gctx.fillRect(x - 7 * s, y - 4 * s, 14 * s, 38 * s);
-    const leaf = shade('#8fd4a4', '#d79b7e', '#4a5f8c');
+    const leaf = shade('#7FB877', '#C88C6A', '#43567A');
     const sway = Math.sin(tick / 70) * 3 * s;
-    circle(x + sway, y - 22 * s, 30 * s, leaf, shade('#6cb98a', '#b97f66', '#3b4c73'), 3 * s);
+    circle(x + sway, y - 22 * s, 30 * s, leaf, shade('#5F9C5E', '#A9714F', '#35476A'), 3 * s);
     circle(x - 24 * s + sway, y - 4 * s, 21 * s, leaf, null);
     circle(x + 24 * s + sway, y - 4 * s, 21 * s, leaf, null);
   },
@@ -2901,7 +3547,7 @@ function drawSandbar(b) {
   const lit = stones.some((s) => s.group === b.group && s.picked);
   gctx.save();
   ellipse(b.x, b.y + 40, b.w / 2 + 5, 44, 'rgba(74,59,82,.12)', null);
-  ellipse(b.x, b.y + 34, b.w / 2, 40, b.tint, lit ? '#5fd0ae' : b.edge, lit ? 6 : 3);
+  ellipse(b.x, b.y + 34, b.w / 2, 40, b.tint, lit ? '#6BA36A' : b.edge, lit ? 6 : 3);
   // little pebbles for texture
   gctx.fillStyle = 'rgba(255,255,255,.5)';
   for (let i = 0; i < 6; i++) {
@@ -3046,7 +3692,7 @@ function drawStone(s) {
     // Unlabelled collectible — a sparkle so it reads as treasure. It keeps
     // its OWN tint, because prompts like "pick 2 red and 1 blue berries"
     // are unanswerable if every berry is the same colour.
-    gctx.fillStyle = s.picked ? '#ffb800' : (tintEdge || '#ffd24a');
+    gctx.fillStyle = s.picked ? '#ffb800' : (tintEdge || '#F4D372');
     gctx.beginPath();
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * TAU - Math.PI / 2;
@@ -3063,7 +3709,7 @@ function drawStone(s) {
     const revealed = s.orderIndex > 0;
     const n = revealed ? s.orderIndex : state.selected.indexOf(s.id) + 1;
     if (n > 0 && (revealed || s.picked)) {
-      circle(x + r * 0.72, y - r * 0.72, 13, revealed ? '#3aa580' : '#a98cff', '#fff', 3);
+      circle(x + r * 0.72, y - r * 0.72, 13, revealed ? '#3aa580' : '#2E7E7B', '#fff', 3);
       gctx.fillStyle = '#fff';
       gctx.font = "800 14px 'Baloo 2', sans-serif";
       gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
@@ -3084,7 +3730,7 @@ function drawRopeTrail() {
 
   gctx.save();
   gctx.lineCap = 'round'; gctx.lineJoin = 'round';
-  gctx.shadowColor = '#a98cff';
+  gctx.shadowColor = '#2E7E7B';
   gctx.shadowBlur = 14 + ropeGlow * 20;
   gctx.strokeStyle = 'rgba(169,140,255,.85)';
   gctx.lineWidth = 9;
@@ -3146,11 +3792,11 @@ const SPECIES_WORDS = {
 };
 
 const COLOR_WORDS = {
-  pink: '#ffb8d4', red: '#ff8f85', orange: '#ffb27a', yellow: '#ffdf85',
-  gold: '#ffd24a', golden: '#ffd24a', green: '#a8e6a1', blue: '#9dd4ff',
-  purple: '#cdb6ff', violet: '#cdb6ff', white: '#fdfaff', black: '#8d85a0',
-  grey: '#d2ccdd', gray: '#d2ccdd', brown: '#caa07c', silver: '#dfe6ee',
-  rainbow: '#ffc7e8', teal: '#9fe6da', cream: '#fff0da',
+  pink: '#F3B3BC', red: '#E07767', orange: '#F0965B', yellow: '#F4D372',
+  gold: '#E8B24A', golden: '#E8B24A', green: '#93CE8C', blue: '#86C2EE',
+  purple: '#A79BD0', violet: '#A79BD0', white: '#FBF6EC', black: '#6B6257',
+  grey: '#C8C0B4', gray: '#C8C0B4', brown: '#B98D66', silver: '#DCE2E6',
+  rainbow: '#F4C89A', teal: '#79C4BC', cream: '#F8E4C8',
 };
 
 const BIG_WORDS = ['fat', 'chubby', 'big', 'huge', 'giant', 'large', 'round', 'fluffy', 'chonky'];
@@ -3283,7 +3929,7 @@ function drawCreature(x, y, size, o) {
       fillStroke(accent, darken(accent, 0.8), 2.4 * k);
       break;
     case 'rainbow': {
-      const cols = ['#ff9ec4', '#ffd24a', '#8bd45f', '#6fc0ff', '#c0a2ff'];
+      const cols = ['#EA93A3', '#F4D372', '#8FC68C', '#86C2EE', '#A79BD0'];
       cols.forEach((c, i) => {
         gctx.strokeStyle = c; gctx.lineWidth = 4 * k;
         gctx.beginPath();
@@ -3356,7 +4002,7 @@ function drawCreature(x, y, size, o) {
   }
 
   if (sp.mane) {
-    const cols = ['#ff9ec4', '#ffd24a', '#8bd45f', '#6fc0ff'];
+    const cols = ['#EA93A3', '#F4D372', '#8FC68C', '#86C2EE'];
     cols.forEach((c, i) => {
       gctx.strokeStyle = c; gctx.lineWidth = 5 * k;
       gctx.beginPath();
@@ -3507,10 +4153,10 @@ function drawCreature(x, y, size, o) {
     });
   }
 
-  // cheeks
-  gctx.fillStyle = 'rgba(255,143,184,.42)';
-  circle(-12 * k, fy + 5 * k, 4 * k, 'rgba(255,143,184,.42)', null);
-  circle(12 * k, fy + 5 * k, 4 * k, 'rgba(255,143,184,.42)', null);
+  // cheeks — a warm flush, not a doll's blusher
+  gctx.fillStyle = 'rgba(224,133,92,.34)';
+  circle(-12 * k, fy + 5 * k, 4 * k, 'rgba(224,133,92,.34)', null);
+  circle(12 * k, fy + 5 * k, 4 * k, 'rgba(224,133,92,.34)', null);
 
   gctx.restore();
 }
@@ -3660,13 +4306,19 @@ function update() {
     if (bgFade >= 1) bgOutgoing = null;
   }
 
-  hero.vx = ((keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0)) * HERO_SPEED;
-  hero.vy = ((keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0)) * HERO_SPEED;
+  const sp = heroSpeed();
+  hero.vx = ((keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0)) * sp;
+  hero.vy = ((keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0)) * sp;
   if (hero.vx !== 0) hero.face = Math.sign(hero.vx);
   hero.x = clamp(hero.x + hero.vx, 0, W - hero.w);
-  hero.y = clamp(hero.y + hero.vy, play.top - 40, Math.min(H - hero.h - 6, play.bottom - hero.h * 0.6));
+  // The hero is clamped INSIDE the walkable band, which is itself derived
+  // from the two reserved zones - so the character can never stand under
+  // the story line or under the question box.
+  hero.y = clamp(hero.y + hero.vy, play.top - 10,
+                 Math.max(play.top, play.bottom - hero.h));
   if (hero.vx || hero.vy) hero.bob += 0.24; else hero.bob += 0.035;
 
+  updateWalk();
   checkPickups();
 }
 
@@ -3676,11 +4328,14 @@ function draw() {
 
   props.forEach(drawProp);
 
+  /* ★ The traversal. While it is live it owns the middle band entirely:
+     no stones, no answers, just the way across. */
+  if (walkState.nodes.length) drawWalkTrack();
+
   /* ★ The answers are DOM cards now. The canvas only paints them where
-     the SPACE is the puzzle — a path to walk, a perimeter to trace,
-     treasure scattered across the ground, fraction islands in a river.
-     Everywhere else the picture stays a picture. */
-  if (canvasStoneMode() !== 'none') {
+     the SPACE is the puzzle — a path to walk, fraction islands in a
+     river. Everywhere else the picture stays a picture. */
+  if (!walkState.active && canvasStoneMode() !== 'none') {
     sandbars.forEach(drawSandbar);
     drawRopeTrail();
     stones.forEach(drawStone);
@@ -3712,9 +4367,11 @@ function loop() {
 }
 
 /* ── boot ── */
+applyBrand();
 initCanvas();
 initDestination();
 loadTopics();
 syncMuteButton();
+resizeStage();
 seedAmbient();
 heroLook = describeHero();

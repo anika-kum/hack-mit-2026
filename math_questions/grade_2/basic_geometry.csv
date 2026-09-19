@@ -1,0 +1,29 @@
+question,answer,difficulty_level,difficulty_label
+How many faces does a cube have?,6,1,easy
+How many sides does a hexagon have?,6,1,easy
+How many corners (vertices) does a cube have?,8,1,easy
+How many sides does an octagon have?,8,1,easy
+How many equal sides does a square have?,4,1,easy
+How many faces does a rectangular box have?,6,1,easy
+How many sides does a pentagon have?,5,1,easy
+How many corners does a pentagon have?,5,1,easy
+How many edges does a triangle have?,3,1,easy
+How many sides does a quadrilateral have?,4,1,easy
+Each side of a square is 4 cm. What is the total distance around the square (perimeter) in cm?,16,2,medium
+Each side of a square is 6 cm. What is the total distance around the square (perimeter) in cm?,24,2,medium
+Each side of a square is 5 cm. What is the total distance around the square (perimeter) in cm?,20,2,medium
+Each side of a square is 3 cm. What is the total distance around the square (perimeter) in cm?,12,2,medium
+Each side of a square is 7 cm. What is the total distance around the square (perimeter) in cm?,28,2,medium
+Each side of a square is 2 cm. What is the total distance around the square (perimeter) in cm?,8,2,medium
+Each side of a square is 8 cm. What is the total distance around the square (perimeter) in cm?,32,2,medium
+Each side of a square is 9 cm. What is the total distance around the square (perimeter) in cm?,36,2,medium
+A rectangle is 9 cm long and 8 cm wide. What is its perimeter in cm?,34,3,hard
+A rectangle is 6 cm long and 4 cm wide. What is its perimeter in cm?,20,3,hard
+A rectangle is 3 cm long and 5 cm wide. What is its perimeter in cm?,16,3,hard
+A rectangle is 7 cm long and 5 cm wide. What is its perimeter in cm?,24,3,hard
+A rectangle is 9 cm long and 5 cm wide. What is its perimeter in cm?,28,3,hard
+A rectangle is 10 cm long and 4 cm wide. What is its perimeter in cm?,28,3,hard
+A rectangle is 5 cm long and 7 cm wide. What is its perimeter in cm?,24,3,hard
+A rectangle is 7 cm long and 2 cm wide. What is its perimeter in cm?,18,3,hard
+A rectangle is 4 cm long and 4 cm wide. What is its perimeter in cm?,16,3,hard
+A rectangle is 7 cm long and 3 cm wide. What is its perimeter in cm?,20,3,hard

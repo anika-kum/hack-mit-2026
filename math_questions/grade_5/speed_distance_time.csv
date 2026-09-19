@@ -1,0 +1,31 @@
+question,answer,difficulty_level,difficulty_label
+A car travels at 70 km per hour for 2 hours. How far does it go in km?,140,1,easy
+A car travels at 50 km per hour for 5 hours. How far does it go in km?,250,1,easy
+A car travels at 60 km per hour for 2 hours. How far does it go in km?,120,1,easy
+A car travels at 60 km per hour for 5 hours. How far does it go in km?,300,1,easy
+A car travels at 40 km per hour for 3 hours. How far does it go in km?,120,1,easy
+A car travels at 50 km per hour for 2 hours. How far does it go in km?,100,1,easy
+A car travels at 30 km per hour for 5 hours. How far does it go in km?,150,1,easy
+A car travels at 60 km per hour for 4 hours. How far does it go in km?,240,1,easy
+A car travels at 30 km per hour for 2 hours. How far does it go in km?,60,1,easy
+A car travels at 80 km per hour for 4 hours. How far does it go in km?,320,1,easy
+A cyclist rides 50 km at 10 km per hour. How many hours does the ride take?,5,2,medium
+A cyclist rides 36 km at 12 km per hour. How many hours does the ride take?,3,2,medium
+A cyclist rides 30 km at 15 km per hour. How many hours does the ride take?,2,2,medium
+A cyclist rides 60 km at 15 km per hour. How many hours does the ride take?,4,2,medium
+A cyclist rides 60 km at 20 km per hour. How many hours does the ride take?,3,2,medium
+A cyclist rides 60 km at 10 km per hour. How many hours does the ride take?,6,2,medium
+A cyclist rides 90 km at 15 km per hour. How many hours does the ride take?,6,2,medium
+A cyclist rides 40 km at 10 km per hour. How many hours does the ride take?,4,2,medium
+A cyclist rides 20 km at 10 km per hour. How many hours does the ride take?,2,2,medium
+A cyclist rides 75 km at 15 km per hour. How many hours does the ride take?,5,2,medium
+A train covers 300 km in 4 hours. What is its speed in km per hour?,75,3,hard
+A train covers 450 km in 5 hours. What is its speed in km per hour?,90,3,hard
+A train covers 225 km in 3 hours. What is its speed in km per hour?,75,3,hard
+A train covers 180 km in 2 hours. What is its speed in km per hour?,90,3,hard
+A train covers 160 km in 2 hours. What is its speed in km per hour?,80,3,hard
+A train covers 400 km in 5 hours. What is its speed in km per hour?,80,3,hard
+A train covers 90 km in 2 hours. What is its speed in km per hour?,45,3,hard
+A train covers 150 km in 2 hours. What is its speed in km per hour?,75,3,hard
+A train covers 270 km in 3 hours. What is its speed in km per hour?,90,3,hard
+A train covers 180 km in 4 hours. What is its speed in km per hour?,45,3,hard

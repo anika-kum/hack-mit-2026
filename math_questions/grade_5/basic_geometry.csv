@@ -1,0 +1,31 @@
+question,answer,difficulty_level,difficulty_label
+"What is the area of a triangle with base 8 cm and height 3 cm, in square cm?",12,1,easy
+"What is the area of a triangle with base 8 cm and height 6 cm, in square cm?",24,1,easy
+"What is the area of a triangle with base 8 cm and height 10 cm, in square cm?",40,1,easy
+"What is the area of a triangle with base 8 cm and height 4 cm, in square cm?",16,1,easy
+"What is the area of a triangle with base 6 cm and height 8 cm, in square cm?",24,1,easy
+"What is the area of a triangle with base 6 cm and height 4 cm, in square cm?",12,1,easy
+"What is the area of a triangle with base 6 cm and height 10 cm, in square cm?",30,1,easy
+"What is the area of a triangle with base 12 cm and height 8 cm, in square cm?",48,1,easy
+"What is the area of a triangle with base 10 cm and height 4 cm, in square cm?",20,1,easy
+"What is the area of a triangle with base 4 cm and height 3 cm, in square cm?",6,1,easy
+"What is the volume of a box 5 cm long, 5 cm wide, and 5 cm tall, in cubic cm?",125,2,medium
+"What is the volume of a box 3 cm long, 7 cm wide, and 3 cm tall, in cubic cm?",63,2,medium
+"What is the volume of a box 2 cm long, 5 cm wide, and 4 cm tall, in cubic cm?",40,2,medium
+"What is the volume of a box 2 cm long, 3 cm wide, and 5 cm tall, in cubic cm?",30,2,medium
+"What is the volume of a box 2 cm long, 8 cm wide, and 6 cm tall, in cubic cm?",96,2,medium
+"What is the volume of a box 8 cm long, 7 cm wide, and 3 cm tall, in cubic cm?",168,2,medium
+"What is the volume of a box 2 cm long, 3 cm wide, and 7 cm tall, in cubic cm?",42,2,medium
+"What is the volume of a box 4 cm long, 8 cm wide, and 6 cm tall, in cubic cm?",192,2,medium
+"What is the volume of a box 7 cm long, 8 cm wide, and 6 cm tall, in cubic cm?",336,2,medium
+"What is the volume of a box 6 cm long, 7 cm wide, and 2 cm tall, in cubic cm?",84,2,medium
+Two angles of a triangle are 62 degrees and 37 degrees. What is the third angle in degrees?,81,3,hard
+Two angles of a triangle are 58 degrees and 55 degrees. What is the third angle in degrees?,67,3,hard
+Two angles of a triangle are 37 degrees and 38 degrees. What is the third angle in degrees?,105,3,hard
+Two angles of a triangle are 54 degrees and 27 degrees. What is the third angle in degrees?,99,3,hard
+Two angles of a triangle are 37 degrees and 44 degrees. What is the third angle in degrees?,99,3,hard
+Two angles of a triangle are 71 degrees and 36 degrees. What is the third angle in degrees?,73,3,hard
+Two angles of a triangle are 76 degrees and 43 degrees. What is the third angle in degrees?,61,3,hard
+Two angles of a triangle are 79 degrees and 44 degrees. What is the third angle in degrees?,57,3,hard
+Two angles of a triangle are 42 degrees and 79 degrees. What is the third angle in degrees?,59,3,hard
+Two angles of a triangle are 53 degrees and 43 degrees. What is the third angle in degrees?,84,3,hard

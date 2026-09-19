@@ -1,0 +1,30 @@
+question,answer,difficulty_level,difficulty_label
+You have 25 cents and find 10 more cents. How many cents do you have?,35,1,easy
+You have 25 cents and find 5 more cents. How many cents do you have?,30,1,easy
+You have 5 cents and find 5 more cents. How many cents do you have?,10,1,easy
+You have 10 cents and find 25 more cents. How many cents do you have?,35,1,easy
+You have 10 cents and find 5 more cents. How many cents do you have?,15,1,easy
+You have 5 cents and find 10 more cents. How many cents do you have?,15,1,easy
+You have 10 cents and find 10 more cents. How many cents do you have?,20,1,easy
+You have 5 cents and find 25 more cents. How many cents do you have?,30,1,easy
+You have 25 cents and find 25 more cents. How many cents do you have?,50,1,easy
+"If it is 7 o'clock now, what time will it be in 2 hours?",9,2,medium
+"If it is 1 o'clock now, what time will it be in 2 hours?",3,2,medium
+"If it is 11 o'clock now, what time will it be in 2 hours?",1,2,medium
+"If it is 3 o'clock now, what time will it be in 2 hours?",5,2,medium
+"If it is 10 o'clock now, what time will it be in 2 hours?",12,2,medium
+"If it is 12 o'clock now, what time will it be in 2 hours?",2,2,medium
+"If it is 9 o'clock now, what time will it be in 2 hours?",11,2,medium
+"If it is 5 o'clock now, what time will it be in 2 hours?",7,2,medium
+"If it is 6 o'clock now, what time will it be in 2 hours?",8,2,medium
+"If it is 8 o'clock now, what time will it be in 2 hours?",10,2,medium
+You have 6 nickels and 2 dimes. How many cents do you have in total?,50,3,hard
+You have 5 nickels and 5 dimes. How many cents do you have in total?,75,3,hard
+You have 5 nickels and 6 dimes. How many cents do you have in total?,85,3,hard
+You have 4 nickels and 6 dimes. How many cents do you have in total?,80,3,hard
+You have 3 nickels and 6 dimes. How many cents do you have in total?,75,3,hard
+You have 4 nickels and 2 dimes. How many cents do you have in total?,40,3,hard
+You have 3 nickels and 1 dimes. How many cents do you have in total?,25,3,hard
+You have 1 nickels and 5 dimes. How many cents do you have in total?,55,3,hard
+You have 3 nickels and 4 dimes. How many cents do you have in total?,55,3,hard
+You have 6 nickels and 6 dimes. How many cents do you have in total?,90,3,hard

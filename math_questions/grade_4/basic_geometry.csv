@@ -1,0 +1,31 @@
+question,answer,difficulty_level,difficulty_label
+"What is the area of a rectangle 4 m by 5 m, in square meters?",20,1,easy
+"What is the area of a rectangle 10 m by 6 m, in square meters?",60,1,easy
+"What is the area of a rectangle 14 m by 7 m, in square meters?",98,1,easy
+"What is the area of a rectangle 8 m by 7 m, in square meters?",56,1,easy
+"What is the area of a rectangle 7 m by 8 m, in square meters?",56,1,easy
+"What is the area of a rectangle 13 m by 9 m, in square meters?",117,1,easy
+"What is the area of a rectangle 14 m by 5 m, in square meters?",70,1,easy
+"What is the area of a rectangle 9 m by 11 m, in square meters?",99,1,easy
+"What is the area of a rectangle 14 m by 10 m, in square meters?",140,1,easy
+"What is the area of a rectangle 4 m by 4 m, in square meters?",16,1,easy
+A square has an area of 25 square cm. How long is each side in cm?,5,2,medium
+A square has an area of 9 square cm. How long is each side in cm?,3,2,medium
+A square has an area of 49 square cm. How long is each side in cm?,7,2,medium
+A square has an area of 64 square cm. How long is each side in cm?,8,2,medium
+A square has an area of 36 square cm. How long is each side in cm?,6,2,medium
+A square has an area of 81 square cm. How long is each side in cm?,9,2,medium
+A square has an area of 144 square cm. How long is each side in cm?,12,2,medium
+A square has an area of 16 square cm. How long is each side in cm?,4,2,medium
+A square has an area of 100 square cm. How long is each side in cm?,10,2,medium
+A square has an area of 121 square cm. How long is each side in cm?,11,2,medium
+Two angles of a triangle are 37 degrees and 90 degrees. What is the third angle in degrees?,53,3,hard
+Two angles of a triangle are 56 degrees and 90 degrees. What is the third angle in degrees?,34,3,hard
+Two angles of a triangle are 48 degrees and 90 degrees. What is the third angle in degrees?,42,3,hard
+Two angles of a triangle are 45 degrees and 90 degrees. What is the third angle in degrees?,45,3,hard
+Two angles of a triangle are 65 degrees and 90 degrees. What is the third angle in degrees?,25,3,hard
+Two angles of a triangle are 23 degrees and 90 degrees. What is the third angle in degrees?,67,3,hard
+Two angles of a triangle are 35 degrees and 90 degrees. What is the third angle in degrees?,55,3,hard
+Two angles of a triangle are 59 degrees and 90 degrees. What is the third angle in degrees?,31,3,hard
+Two angles of a triangle are 44 degrees and 90 degrees. What is the third angle in degrees?,46,3,hard
+Two angles of a triangle are 61 degrees and 90 degrees. What is the third angle in degrees?,29,3,hard

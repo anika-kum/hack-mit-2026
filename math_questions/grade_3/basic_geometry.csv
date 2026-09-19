@@ -1,0 +1,31 @@
+question,answer,difficulty_level,difficulty_label
+What is the perimeter of a square with sides of 6 cm?,24,1,easy
+What is the perimeter of a square with sides of 4 cm?,16,1,easy
+What is the perimeter of a square with sides of 5 cm?,20,1,easy
+What is the perimeter of a square with sides of 8 cm?,32,1,easy
+What is the perimeter of a square with sides of 3 cm?,12,1,easy
+What is the perimeter of a square with sides of 10 cm?,40,1,easy
+What is the perimeter of a square with sides of 11 cm?,44,1,easy
+What is the perimeter of a square with sides of 9 cm?,36,1,easy
+What is the perimeter of a square with sides of 7 cm?,28,1,easy
+What is the perimeter of a square with sides of 12 cm?,48,1,easy
+"What is the area of a rectangle 9 cm long and 8 cm wide, in square cm?",72,2,medium
+"What is the area of a rectangle 12 cm long and 9 cm wide, in square cm?",108,2,medium
+"What is the area of a rectangle 5 cm long and 9 cm wide, in square cm?",45,2,medium
+"What is the area of a rectangle 6 cm long and 8 cm wide, in square cm?",48,2,medium
+"What is the area of a rectangle 10 cm long and 9 cm wide, in square cm?",90,2,medium
+"What is the area of a rectangle 7 cm long and 8 cm wide, in square cm?",56,2,medium
+"What is the area of a rectangle 5 cm long and 2 cm wide, in square cm?",10,2,medium
+"What is the area of a rectangle 5 cm long and 7 cm wide, in square cm?",35,2,medium
+"What is the area of a rectangle 11 cm long and 4 cm wide, in square cm?",44,2,medium
+"What is the area of a rectangle 8 cm long and 6 cm wide, in square cm?",48,2,medium
+A rectangle has a perimeter of 20 cm. Its length is 8 cm. What is its width in cm?,2,3,hard
+A rectangle has a perimeter of 32 cm. Its length is 8 cm. What is its width in cm?,8,3,hard
+A rectangle has a perimeter of 28 cm. Its length is 7 cm. What is its width in cm?,7,3,hard
+A rectangle has a perimeter of 26 cm. Its length is 6 cm. What is its width in cm?,7,3,hard
+A rectangle has a perimeter of 20 cm. Its length is 7 cm. What is its width in cm?,3,3,hard
+A rectangle has a perimeter of 18 cm. Its length is 6 cm. What is its width in cm?,3,3,hard
+A rectangle has a perimeter of 28 cm. Its length is 8 cm. What is its width in cm?,6,3,hard
+A rectangle has a perimeter of 30 cm. Its length is 7 cm. What is its width in cm?,8,3,hard
+A rectangle has a perimeter of 24 cm. Its length is 5 cm. What is its width in cm?,7,3,hard
+A rectangle has a perimeter of 30 cm. Its length is 9 cm. What is its width in cm?,6,3,hard

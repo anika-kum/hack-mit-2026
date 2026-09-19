@@ -2,25 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Doodle Quest — Draw it. Play it. Learn it.</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Do-IT-oodle</title>
+<link rel="icon" href="/static/assets/palette.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
+<script src="/static/brand.js"></script>
 </head>
 <body>
 
-<div class="sky-decor" aria-hidden="true">
-  <span class="cloud c1"></span><span class="cloud c2"></span><span class="cloud c3"></span>
-</div>
-
-<!-- ───────────────────────── TITLE ───────────────────────── -->
+<!-- ───────────────────────── TITLE ─────────────────────────
+     Everything with a data-brand attribute is filled in from brand.js at
+     boot. That is the single seam: swap brand.js, the chrome follows. -->
 <section id="screen-title" class="screen active">
   <div class="title-card">
-    <div class="logo-doodle" aria-hidden="true">🎨</div>
-    <h1>Doodle Quest</h1>
-    <p class="tagline">Draw anything. Tell us what you want to learn.<br><strong>Your drawing becomes the game!</strong></p>
+    <img class="brand-logo" id="title-logo" data-brand="logo" alt="" hidden>
+    <h1 class="wordmark" data-brand="wordmark" id="title-wordmark"></h1>
+    <p class="tagline" data-brand="motto" id="title-motto"></p>
     <button class="btn btn-big" data-goto="screen-create">Start Adventure ✨</button>
     <p class="ai-status" id="ai-status"></p>
   </div>
@@ -30,6 +30,7 @@
 <section id="screen-create" class="screen">
   <header class="screen-head">
     <button class="btn btn-ghost" data-goto="screen-title">‹ Back</button>
+    <span class="wordmark wordmark-sm" data-brand="wordmark" id="create-wordmark"></span>
     <h2>Step 1 — Make your hero &amp; world</h2>
     <span class="step-dots"><i class="on"></i><i></i><i></i></span>
   </header>
@@ -49,13 +50,13 @@
         </div>
       </div>
       <canvas id="draw-canvas" width="720" height="460"></canvas>
-      <p class="hint">Draw a character and a place — like a cat 🐱 beside a tree 🌳 near a river 🌊</p>
+      <p class="hint">Draw a character and a place — like a fox 🦊 beside a tree 🌳 near a river 🌊</p>
     </div>
 
     <div class="panel">
       <h3>💬 Or tell us</h3>
       <textarea id="desc-input" rows="4"
-        placeholder="A fluffy cat named Mochi who lives by a sparkling river with a big oak tree…"></textarea>
+        placeholder="A brave little fox named Rusty who lives by a fast river with a big oak tree…"></textarea>
       <button class="btn btn-soft" id="btn-mic">🎤 Speak instead</button>
       <p class="mic-status" id="mic-status"></p>
 
@@ -81,7 +82,8 @@
 <!-- ───────────────────────── LOADING ───────────────────────── -->
 <section id="screen-loading" class="screen">
   <div class="loading-card">
-    <div class="spinner" aria-hidden="true">🪄</div>
+    <img class="brand-mark spin" id="loading-mark" data-brand="mark" alt="" hidden>
+    <div class="spinner" id="loading-spinner" aria-hidden="true">🎨</div>
     <h2 id="loading-title">Bringing your world to life…</h2>
     <p id="loading-sub">Waking up your character…</p>
   </div>
@@ -91,6 +93,7 @@
 <section id="screen-topic" class="screen">
   <header class="screen-head">
     <button class="btn btn-ghost" data-goto="screen-create">‹ Back</button>
+    <span class="wordmark wordmark-sm" data-brand="wordmark" id="topic-wordmark"></span>
     <h2>Step 2 — What should we learn?</h2>
     <span class="step-dots"><i class="on"></i><i class="on"></i><i></i></span>
   </header>
@@ -108,94 +111,115 @@
 </section>
 
 <!-- ───────────────────────── GAME ─────────────────────────
-     Laid out as a picture book: a plate (the illustration) on the upper
-     page, the story + question + answers on the lower page. The three
-     regions — ART (which contains the character), NARRATION and ANSWERS —
-     are block-level siblings in normal flow, so they can never overlap.
-     The only absolutely-positioned overlays are pinned INSIDE a single
-     region: #narration-card fills #story-slot, #toast and #page-turn fill
-     #art-frame. -->
-<section id="screen-game" class="screen">
-  <div class="hud">
-    <button class="btn btn-ghost btn-tiny" data-goto="screen-topic">‹ Menu</button>
-    <div class="hud-stats">
-      <span class="chip">⭐ <b id="hud-score">0</b></span>
-      <span class="chip">🔥 <b id="hud-streak">0</b></span>
-      <span class="chip">📈 Lv <b id="hud-level">1</b></span>
-      <span class="chip">🎯 <b id="hud-acc">—</b></span>
-    </div>
-    <button class="btn btn-ghost btn-tiny" id="btn-replay" title="Read the question again">🔁 Read</button>
-    <button class="btn btn-ghost btn-tiny" id="btn-mute" title="Turn read-aloud on or off">🔊</button>
-    <button class="btn btn-soft btn-tiny" id="btn-skip">Skip ↻</button>
-  </div>
+     FULL-BLEED. The stage fills the viewport; the painted world is the
+     whole screen, and the UI is two RESERVED ZONES pinned to it:
 
-  <!-- ★ the storybook map — where we're headed, and how far we've come ★ -->
-  <div class="quest-trail" id="quest-trail" hidden>
-    <div class="trail-head">
-      <span class="trail-eyebrow">We’re heading to</span>
-      <p class="trail-goal" id="trail-goal">…</p>
-    </div>
-    <div class="trail-map">
-      <div class="trail-track" id="trail-track">
-        <i class="trail-done" id="trail-fill"></i>
-        <span class="trail-dots" id="trail-dots"></span>
-        <span class="trail-walker" id="trail-walker">🐾</span>
-        <span class="trail-pin" id="trail-pin">🚩</span>
+        #zone-top       narration + chrome        top of the screen
+        (middle band)   the world and the hero    NOTHING is pinned here
+        #zone-question  the question, dominant    lower third
+
+     Those two zones are `position:absolute` against #stage with hard
+     height caps, and the hero's play band is computed at runtime from
+     their measured rects (syncSafeZones in app.js) — so the character
+     physically cannot walk under either of them, and the question can
+     never be covered by the story text. This is the non-overlap
+     guarantee that a previous pass got by putting the answers BELOW the
+     art; we keep the guarantee and put them back on the art. -->
+<section id="screen-game" class="screen screen-stage">
+  <div class="stage" id="stage">
+    <canvas id="game-canvas" width="1280" height="720"></canvas>
+    <div class="page-turn" id="page-turn" aria-hidden="true"><i class="sheet"></i></div>
+    <div class="stage-scrim" aria-hidden="true"></div>
+
+    <!-- ════ ZONE TOP — chrome, then the story line, which STAYS ════ -->
+    <div class="zone zone-top" id="zone-top">
+      <div class="hud">
+        <button class="btn btn-ghost btn-tiny" data-goto="screen-topic">‹ Menu</button>
+        <span class="wordmark wordmark-xs" data-brand="wordmark" id="hud-wordmark"></span>
+        <div class="hud-stats">
+          <span class="chip">⭐ <b id="hud-score">0</b></span>
+          <span class="chip">🔥 <b id="hud-streak">0</b></span>
+          <span class="chip">📈 Lv <b id="hud-level">1</b></span>
+          <span class="chip">🎯 <b id="hud-acc">—</b></span>
+        </div>
+        <button class="btn btn-ghost btn-tiny" id="btn-replay" title="Read it again">🔁 Read</button>
+        <button class="btn btn-ghost btn-tiny" id="btn-mute" title="Turn read-aloud on or off">🔊</button>
+        <button class="btn btn-soft btn-tiny" id="btn-skip">Skip ↻</button>
       </div>
-      <span class="trail-remaining" id="trail-remaining" hidden></span>
-    </div>
-  </div>
 
-  <div class="storybook" id="storybook">
-
-    <!-- book furniture: the running head -->
-    <div class="chapter-row" id="chapter-row" hidden>
-      <span class="chapter-chip" id="beat-chip">Chapter 1</span>
-      <div class="beat-bar"><i id="beat-fill"></i></div>
-    </div>
-
-    <!-- ── UPPER PAGE: the illustration plate ── -->
-    <div class="page-art">
-      <div class="art-frame" id="art-frame">
-        <canvas id="game-canvas" width="960" height="540"></canvas>
-        <div class="toast" id="toast" hidden></div>
-        <div class="page-turn" id="page-turn" aria-hidden="true"><i class="sheet"></i></div>
+      <!-- the journey trail — where we're headed, and how far we've come -->
+      <div class="quest-trail" id="quest-trail" hidden>
+        <div class="trail-head">
+          <span class="trail-eyebrow">Heading to</span>
+          <p class="trail-goal" id="trail-goal">…</p>
+        </div>
+        <div class="trail-map">
+          <div class="trail-track" id="trail-track">
+            <i class="trail-done" id="trail-fill"></i>
+            <span class="trail-dots" id="trail-dots"></span>
+            <span class="trail-walker" id="trail-walker">🐾</span>
+            <span class="trail-pin" id="trail-pin">🚩</span>
+          </div>
+          <span class="trail-remaining" id="trail-remaining" hidden></span>
+        </div>
       </div>
-    </div>
 
-    <!-- ── LOWER PAGE: the words ── -->
-    <div class="page-text">
-
-      <!-- the prose. #narration-card is pinned to THIS slot and nowhere else. -->
-      <div class="story-slot" id="story-slot">
-        <div class="story-bar">
-          <span class="story-avatar" id="story-avatar">🐱</span>
+      <!-- ★ THE STORY LINE. Floats at the top and STAYS there. ★ -->
+      <div class="story-ribbon" id="story-ribbon">
+        <span class="story-avatar" id="story-avatar">🦊</span>
+        <div class="story-lines">
+          <span class="story-eyebrow" id="story-eyebrow">Chapter 1</span>
           <p id="story-text">Loading your adventure…</p>
         </div>
-        <div class="narration-card" id="narration-card" hidden>
-          <span class="narration-badge" id="narration-badge">Chapter</span>
-          <p id="narration-text"></p>
-        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+
+    <!-- ════ ZONE QUESTION — the lower third, and the loudest thing on
+         screen. Either the WALK band (arrow keys, no maths) or the
+         QUESTION box is showing; never both, never neither. ════ -->
+    <div class="zone zone-question" id="zone-question">
+      <div class="chapter-row" id="chapter-row" hidden>
+        <span class="chapter-chip" id="beat-chip">Chapter 1</span>
+        <div class="beat-bar"><i id="beat-fill"></i></div>
       </div>
 
-      <!-- ★ THE PROBLEM — always visible, never replaced by story text ★ -->
-      <div class="problem-banner" id="problem-banner">
-        <div class="problem-main">
-          <span class="problem-eyebrow">Your question</span>
-          <p class="problem-text" id="problem-text">…</p>
+      <!-- ── the traversal: keystrokes, no maths ── -->
+      <div class="walk-band" id="walk-band" hidden>
+        <div class="walk-main">
+          <p class="walk-title" id="walk-title">Hop the stepping stones</p>
+          <p class="walk-hint" id="walk-hint">Use the <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> keys</p>
         </div>
-        <div class="problem-side">
+        <div class="walk-pips" id="walk-pips" aria-hidden="true"></div>
+        <button class="btn btn-ghost btn-tiny walk-skip" id="btn-walk-skip" type="button">Skip ahead ›</button>
+      </div>
+
+      <!-- ── ★ THE QUESTION ★ ── -->
+      <div class="question-box" id="question-box" hidden>
+        <div class="question-head">
+          <span class="question-eyebrow" id="question-eyebrow">Your question</span>
           <span class="problem-progress" id="problem-progress" hidden>0 of 0 ⭐</span>
         </div>
-      </div>
+        <p class="question-text" id="problem-text">…</p>
 
-      <!-- ★ the answers — clickable storybook cards, never painted blobs ★ -->
-      <div class="answer-tray" id="answer-tray" hidden></div>
+        <!-- clickable answer cards -->
+        <div class="answer-tray" id="answer-tray" hidden></div>
 
-      <div class="game-foot">
-        <div class="selected-row" id="selected-row"></div>
-        <button class="lock-btn" id="space-hint" type="button" hidden>Lock it in <kbd>Space</kbd> ✓</button>
-        <p class="controls-hint" id="controls-hint">Tap the answer you think is right ✨</p>
+        <!-- typed answers -->
+        <form class="typein" id="typein" hidden autocomplete="off">
+          <input class="typein-input" id="typein-input" type="text"
+                 inputmode="decimal" autocomplete="off" autocorrect="off"
+                 spellcheck="false" maxlength="10" aria-label="Type your answer">
+          <span class="typein-unit" id="typein-unit" hidden></span>
+          <button class="btn btn-big typein-go" id="typein-submit" type="submit">✓</button>
+        </form>
+
+        <div class="q-foot">
+          <div class="selected-row" id="selected-row"></div>
+          <button class="lock-btn" id="space-hint" type="button" hidden>Lock it in <kbd>Space</kbd> ✓</button>
+          <p class="controls-hint" id="controls-hint">Tap the answer you think is right ✨</p>
+        </div>
       </div>
     </div>
   </div>

@@ -1,5 +1,5 @@
 """
-Doodle Quest - FastAPI backend.
+do-IT-oodle - FastAPI backend.
 
 Serves the API and the static frontend from a single process:
     uvicorn app:app --reload --port 8000   (run from the backend/ directory)
@@ -75,12 +75,13 @@ load_dotenv(pathlib.Path(__file__).parent / ".env")
 
 import math_engine  # noqa: E402
 import prompts  # noqa: E402
+import question_bank  # noqa: E402
 import story_engine  # noqa: E402
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
 
-app = FastAPI(title="Doodle Quest API")
+app = FastAPI(title="Do-IT-oodle API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -93,7 +94,7 @@ SESSIONS: dict[str, dict] = {}
 
 # Fields that must never reach the browser: they are, or reconstruct, the
 # answer key. Everything else in the challenge is renderable data.
-SECRET_FIELDS = ("explanation", "answer_order", "order_cyclic")
+SECRET_FIELDS = ("explanation", "answer_order", "order_cyclic", "answer_value")
 # Per-stone fields that ARE safe to ship - they are what makes the puzzle
 # solvable by looking at it.
 STONE_VISUAL_FIELDS = ("group", "tint", "shape", "dots", "x_pct", "y_pct")
@@ -151,7 +152,10 @@ class StartGameRequest(BaseModel):
 
 class AnswerRequest(BaseModel):
     session_id: str
-    stone_ids: list[int]
+    stone_ids: list[int] = []
+    # Free response: whatever the child typed, exactly as typed. Graded
+    # deterministically against `answer_value`, which never leaves the server.
+    typed: str | None = None
 
 
 class NextChallengeRequest(BaseModel):
@@ -171,6 +175,10 @@ def health():
         "max_frames": MAX_FRAMES,
         "frame_every_beats": FRAME_EVERY_BEATS,
         "storyline_budget_s": STORYLINE_BUDGET_S,
+        # The CSV question bank is optional. When it is absent every number
+        # range falls back to the hard-coded one in math_engine, which is
+        # exactly how the game shipped before the bank existed.
+        "question_bank": question_bank.load().summary(),
     }
 
 
@@ -444,9 +452,15 @@ def create_world(req: CreateWorldRequest):
     # ~12s, which is almost exactly what the images below take - so by the
     # time create-world returns it is already done and /api/start-game does
     # not wait at all. (Submitting it after the images cost 14s of dead air.)
+    # The topic is not chosen yet, so complexity comes from the band hint
+    # alone plus a mid-weight topic. The model is always shown the FULL
+    # skeleton, and story_engine picks out the stops this quest actually uses
+    # - so an outline written for the wrong band is trimmed, never wasted.
+    hint_band = req.band if req.band in math_engine.BANDS else "23"
     session["storyline_future"] = _POOL.submit(
         prompts.generate_storyline, interpretation,
-        req.band or "23", destination, story_engine.JOURNEY_SKELETON, "")
+        hint_band, destination, story_engine.JOURNEY_SKELETON, "",
+        story_engine.complexity_for(hint_band, "geometry"))
     session["storyline_requested_at"] = time.time()
 
     if req.generate_images:
@@ -487,11 +501,49 @@ def create_world(req: CreateWorldRequest):
 
 # ------------------------------------------------------------------ grading
 
+def parse_typed_number(raw) -> float | None:
+    """What a child typed, as a number - or None if it isn't one.
+
+    Deliberately forgiving about the things a six-year-old's hands do
+    (spaces, a stray comma, a trailing unit, a leading '='), and deliberately
+    strict about everything else: a blank box must never grade as correct.
+    """
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    if not text:
+        return None
+    for junk in ("=", "cents", "cent", "km/h", "km", "cm", "m", "l", "$", "c", ","):
+        text = text.replace(junk, " ")
+    text = text.replace(" ", "")
+    if text in ("", "-", ".", "-."):
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
 def _grade(challenge: dict, chosen_list: list[int], chosen: set[int],
-           correct_ids: set[int]) -> bool:
+           correct_ids: set[int], typed: str | None = None) -> bool:
     """Deterministic grading. Never an LLM - a wrong answer key is fatal here."""
     mode = challenge.get("grade_mode", "set")
     stones = challenge.get("stones", [])
+
+    if mode == "value":
+        # FREE RESPONSE. `tolerance` is half a unit in the last decimal place
+        # the question asked for, so 3.7 is right and 3.71 is wrong when the
+        # question was to one place - but 3.7000001 is never punished.
+        want = challenge.get("answer_value")
+        if want is None:
+            return False
+        got = parse_typed_number(typed)
+        if got is None:
+            return False
+        return abs(got - float(want)) <= float(challenge.get("tolerance", 1e-6))
+
+    if mode == "none":
+        return True                 # an interlude has nothing to get wrong
 
     if mode == "count":
         # COLLECT-N: pick exactly target_count items, and only collectable
@@ -779,9 +831,15 @@ def answer(req: AnswerRequest):
         raise HTTPException(400, "No active challenge.")
     quest = session.get("quest")
 
+    if challenge.get("question_type") == "interlude":
+        # Interludes are walked, not answered. The frontend goes straight to
+        # /api/next-beat; anything posting here is confused, and silently
+        # scoring it would corrupt the streak.
+        raise HTTPException(400, "This beat has no question - walk it instead.")
+
     correct_ids = {s["id"] for s in challenge["stones"] if s["correct"]}
     chosen = set(req.stone_ids)
-    graded = _grade(challenge, req.stone_ids, chosen, correct_ids)
+    graded = _grade(challenge, req.stone_ids, chosen, correct_ids, req.typed)
 
     # "n of d equal parts" has many right answers. When the child found one of
     # them, highlight THEIRS - highlighting a different valid set would read
@@ -850,6 +908,8 @@ def answer(req: AnswerRequest):
         "graded_correct": graded,
         "no_fail": no_fail,
         "correct_stone_ids": sorted(reveal_ids),
+        "answer_value": challenge.get("answer_value"),
+        "typed": req.typed,
         "answer_order": challenge.get("answer_order"),
         "explanation": challenge.get("explanation", ""),
         "feedback": prompts.feedback_line(was_correct, char),

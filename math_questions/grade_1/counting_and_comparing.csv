@@ -1,0 +1,31 @@
+question,answer,difficulty_level,difficulty_label
+What number comes after 20?,21,1,easy
+What number comes after 3?,4,1,easy
+What number comes after 13?,14,1,easy
+What number comes after 15?,16,1,easy
+What number comes after 17?,18,1,easy
+What number comes after 9?,10,1,easy
+What number comes after 18?,19,1,easy
+What number comes after 1?,2,1,easy
+What number comes after 4?,5,1,easy
+What number comes after 11?,12,1,easy
+What number comes before 9?,8,2,medium
+What number comes before 20?,19,2,medium
+What number comes before 29?,28,2,medium
+What number comes before 12?,11,2,medium
+What number comes before 31?,30,2,medium
+What number comes before 2?,1,2,medium
+What number comes before 48?,47,2,medium
+What number comes before 18?,17,2,medium
+What number comes before 34?,33,2,medium
+What number comes before 50?,49,2,medium
+Which is bigger: 32 or 74?,74,3,hard
+Which is bigger: 23 or 90?,90,3,hard
+Which is bigger: 48 or 91?,91,3,hard
+Which is bigger: 74 or 87?,87,3,hard
+Which is bigger: 35 or 29?,35,3,hard
+Which is bigger: 57 or 30?,57,3,hard
+Which is bigger: 79 or 77?,79,3,hard
+Which is bigger: 10 or 86?,86,3,hard
+Which is bigger: 51 or 72?,72,3,hard
+Which is bigger: 12 or 24?,24,3,hard

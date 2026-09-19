@@ -44,7 +44,9 @@ import string
 
 import math_engine
 
-MAX_BEATS = 8
+# The richest arc (ages 9-10, speed/distance/time) is nine stops, and a
+# struggling child can have helper beats spliced in on top of that.
+MAX_BEATS = 11
 MIN_BEATS = 5
 
 FRIENDS = [
@@ -57,6 +59,11 @@ FRIENDS = [
 
 # Which mechanic each archetype plays as. story_engine asks for a MECHANIC;
 # math_engine owns the actual math.
+#
+# "collect" is now COUNT-OUT (take exactly as many as the answer, from a pile
+# that holds more) and "type" is free response. The six touch-and-choose
+# archetypes deleted on 2026-09-19 are gone from here too - see
+# math_engine.DELETED_ARCHETYPES.
 MECHANIC_OF = {
     "berry_baskets": "pick",
     "plank_bridge": "pick",
@@ -73,49 +80,74 @@ MECHANIC_OF = {
     "balance_bridge": "pick",
     "catch_the_raft": "pick",
     "clock_run": "pick",
+    "biggest_pile": "pick",
+    "next_in_line": "pick",
+    "coin_purse": "pick",
     "toll_gate": "set",
     "rain_gauge": "set",
     "balance_scales": "set",
-    "berry_harvest": "collect",
-    "pick_around_mushrooms": "collect",
-    "plant_orchard": "collect",
+    "acorn_count": "collect",
+    "stones_left": "collect",
+    "orchard_count": "collect",
     "fraction_of_berries": "collect",
-    "tile_the_floor": "collect",
-    "mile_markers": "collect",
-    "walk_perimeter": "walk",
+    "fence_posts": "collect",
+    "mile_count": "collect",
+    "count_the_lanterns": "collect",
+    "market_stall": "collect",
     "countdown_path": "walk",
     "safe_sandbars": "group",
+    "sum_scroll": "type",
+    "tally_scroll": "type",
+    "product_scroll": "type",
+    "fraction_scroll": "type",
+    "gauge_scroll": "type",
+    "survey_scroll": "type",
+    "rune_scroll": "type",
+    "logbook_scroll": "type",
+    "counting_scroll": "type",
+    "money_scroll": "type",
+    "final_gate": "finale",
 }
 
 # What each archetype is ABOUT. The beat narration names a place and a stake;
 # the noun comes from whatever challenge actually got generated, so the story
 # never promises planks and then hand the child a berry sum.
 ARCHETYPE_SUBJECT = {
-    "berry_baskets": "berries", "berry_harvest": "berries", "toll_gate": "gems", "plank_bridge": "planks",
-    "lanterns_out": "lanterns", "pick_around_mushrooms": "berries",
+    "berry_baskets": "berries", "acorn_count": "acorns", "toll_gate": "gems",
+    "plank_bridge": "planks", "sum_scroll": "tally marks",
+    "lanterns_out": "lanterns", "stones_left": "stepping stones",
     "spend_gems": "gems", "countdown_path": "stepping stones",
-    "plant_orchard": "seeds", "rows_of_lanterns": "lanterns",
-    "equal_baskets": "apples",
+    "tally_scroll": "tally marks",
+    "orchard_count": "seeds", "rows_of_lanterns": "lanterns",
+    "equal_baskets": "apples", "product_scroll": "tally marks",
     "safe_sandbars": "stepping stones", "fraction_of_berries": "berries",
-    "pie_gate": "moon-shards",
+    "pie_gate": "moon-shards", "fraction_scroll": "moon-shards",
     "number_line_leap": "lily pads", "rain_gauge": "raindrops",
-    "measure_rope": "rope",
-    "shape_door": "keys", "walk_perimeter": "rope", "tile_the_floor": "tiles",
-    "garden_measure": "fence posts",
+    "measure_rope": "rope", "gauge_scroll": "raindrops",
+    "shape_door": "keys", "fence_posts": "fence posts",
+    "garden_measure": "fence posts", "survey_scroll": "fence posts",
     "mystery_sacks": "gems", "balance_bridge": "gems", "balance_scales": "gems",
-    "catch_the_raft": "raft-marks", "clock_run": "miles", "mile_markers": "miles",
+    "rune_scroll": "runes",
+    "catch_the_raft": "raft-marks", "clock_run": "miles",
+    "mile_count": "miles", "logbook_scroll": "miles",
+    "count_the_lanterns": "lanterns", "biggest_pile": "pebbles",
+    "next_in_line": "stepping stones", "counting_scroll": "tally marks",
+    "coin_purse": "coins", "market_stall": "coins", "money_scroll": "coins",
+    "final_gate": "treasures",
 }
 
 # Subjects collapse onto four carryable slots so the quest can spend later
 # what it gathered earlier, whatever the topic happened to be about.
 SUBJECT_SLOT = {
     "berries": "berries", "apples": "berries", "seeds": "berries",
+    "acorns": "berries", "pebbles": "berries",
     "planks": "planks", "rope": "planks", "tiles": "planks",
     "fence posts": "planks", "stepping stones": "planks",
     "lanterns": "lanterns", "moon-shards": "lanterns", "lily pads": "lanterns",
-    "keys": "lanterns",
+    "keys": "lanterns", "runes": "lanterns",
     "gems": "gems", "raindrops": "gems", "miles": "gems",
-    "raft-marks": "gems",
+    "raft-marks": "gems", "coins": "gems", "tally marks": "gems",
+    "treasures": "gems",
 }
 
 
@@ -383,10 +415,10 @@ GENERIC_TRAIL = {
 
 TEMPLATES = [RIVER_CROSSING, LANTERN_FESTIVAL, GENERIC_TRAIL]
 
-# ============================================== V2: the journey skeleton
+# ====================================== V3: the journey skeleton + traversal
 #
 # The AI writes the STORY. This module keeps the MACHINE. Every entry below
-# is the mechanical half of one beat - difficulty delta, which mechanic,
+# is the mechanical half of one stop - difficulty delta, which mechanic,
 # what is gathered or spent, whether it may be dropped, whether it may be
 # failed - and `role` is the only thing the model ever sees.
 #
@@ -394,59 +426,264 @@ TEMPLATES = [RIVER_CROSSING, LANTERN_FESTIVAL, GENERIC_TRAIL]
 # shape, so adaptation (helper splicing, optional dropping, the unfailable
 # resolution) behaves the same on both paths and the offline game never
 # regresses.
+#
+# V3 adds two things the playtest demanded:
+#
+#   TRAVERSAL   Every stop is reached by MOVING. `traversal` describes a short
+#               keyboard journey - hop four stones, climb three ledges - that
+#               the child plays with the arrow keys BEFORE the question
+#               appears. Questions no longer arrive back to back; they are
+#               what you find at the end of a walk.
+#
+#   INTERLUDES  Stops with `no_question: True`. Pure story: push the log,
+#               open the gate, wade the reeds. No arithmetic at all. These
+#               exist because "the story is told through a series of
+#               questions" was the single loudest complaint.
+#
+# `min_complexity` gates a stop on how hard the quest should be (see
+# `complexity_for`), which is how a speed/distance/time quest for a
+# nine-year-old ends up with more locations and more plot turns than an
+# addition quest for a four-year-old.
 
-JOURNEY_SKELETON = [
+FULL_SKELETON = [
     {
+        "slot": 0,
         "key": "setup", "kind": "setup", "camera": "wide", "tint": "day",
         "level_delta": -1, "mechanic": ["pick", "collect"],
+        "min_complexity": 0,
+        "traversal": {"kind": "path", "verb": "Set off", "noun": "waymark"},
         "fallback_title": "Setting Out",
         "role": ("SETTING OUT. The very first step of the journey, at the starting "
                  "point, with the destination visible far away. Easy and "
                  "reassuring - a guaranteed win that names the goal."),
     },
     {
+        "slot": 1,
+        "key": "crossing", "kind": "interlude", "camera": "left_bank", "tint": "day",
+        "level_delta": 0, "mechanic": [], "no_question": True,
+        "min_complexity": 0,
+        "traversal": {"kind": "stones", "verb": "Hop", "noun": "stepping stone"},
+        "fallback_title": "The Stepping Stones",
+        "role": ("A WORDLESS CROSSING. No puzzle here at all - the traveller "
+                 "simply has to get across something: stepping stones, a "
+                 "fallen log, a line of rocks. Describe the crossing itself."),
+    },
+    {
+        "slot": 2,
         "key": "gather1", "kind": "gather", "camera": "left_bank", "tint": "day",
         "level_delta": 0, "mechanic": ["collect", "set", "pick"], "gain": "berries",
+        "min_complexity": 0,
+        "traversal": {"kind": "reeds", "verb": "Wade", "noun": "reed bank"},
         "fallback_title": "The Gathering Place",
         "role": ("GATHER. A stop a little way along where something useful is "
                  "collected - it will be needed further on. Mention picking things up."),
     },
     {
+        "slot": 3,
         "key": "gather2", "kind": "gather", "camera": "left_bank", "tint": "day",
-        "level_delta": 0, "mechanic": ["pick", "set"], "gain": "planks",
-        "optional": True, "fallback_title": "The Second Find",
+        "level_delta": 0, "mechanic": ["pick", "set", "type"], "gain": "planks",
+        "optional": True, "min_complexity": 2,
+        "traversal": {"kind": "path", "verb": "Follow", "noun": "cairn"},
+        "fallback_title": "The Second Find",
         "role": ("GATHER again, somewhere different and further on - a second kind "
                  "of useful thing, materials rather than food."),
     },
     {
+        "slot": 4,
         "key": "obstacle", "kind": "obstacle", "camera": "midstream", "tint": "day",
-        "level_delta": 0, "mechanic": ["set", "walk", "pick"], "spend": "planks",
+        "level_delta": 0, "mechanic": ["set", "walk", "pick", "type"],
+        "spend": "planks", "min_complexity": 0,
+        "traversal": {"kind": "log", "verb": "Push", "noun": "fallen log"},
         "fallback_title": "The Way Is Blocked",
         "role": ("OBSTACLE, roughly halfway. Something blocks the route to the "
                  "destination and the gathered materials get USED UP getting past it."),
     },
     {
+        "slot": 5,
+        "key": "ledge", "kind": "interlude", "camera": "midstream", "tint": "dusk",
+        "level_delta": 0, "mechanic": [], "no_question": True,
+        "min_complexity": 3,
+        "traversal": {"kind": "ledge", "verb": "Climb", "noun": "ledge"},
+        "fallback_title": "The Cliff Ledges",
+        "role": ("ANOTHER WORDLESS STRETCH, harder than the first and later in "
+                 "the journey: a climb, a scramble, a narrow ledge. Still no "
+                 "puzzle - just the effort of getting up and over."),
+    },
+    {
+        "slot": 6,
         "key": "setback", "kind": "setback", "camera": "midstream", "tint": "dusk",
         "level_delta": -1, "mechanic": ["pick", "collect"], "gain": "lanterns",
-        "optional": True, "fallback_title": "The Light Goes",
+        "optional": True, "min_complexity": 1,
+        "traversal": {"kind": "reeds", "verb": "Push through", "noun": "thicket"},
+        "fallback_title": "The Light Goes",
         "role": ("SETBACK. The weather or the light turns and the destination is "
                  "briefly hard to see. Tense but never frightening, and end on hope."),
     },
     {
+        "slot": 7,
         "key": "climax", "kind": "climax", "camera": "high", "tint": "night",
-        "level_delta": 1, "mechanic": ["group", "collect", "walk", "pick"],
+        "level_delta": 1, "mechanic": ["group", "collect", "walk", "pick", "type"],
+        "finale": True, "min_complexity": 0,
+        "traversal": {"kind": "gate", "verb": "Open", "noun": "gate latch"},
         "fallback_title": "The Last Hard Part",
         "role": ("CLIMAX. The final hard stretch, right at the foot of the "
-                 "destination. The biggest challenge of the whole journey."),
+                 "destination. The biggest challenge of the whole journey, and "
+                 "it uses everything gathered along the way."),
     },
     {
+        "slot": 8,
         "key": "arrival", "kind": "resolution", "camera": "far_bank", "tint": "night",
         "level_delta": -2, "mechanic": ["pick", "collect"], "no_fail": True,
+        "min_complexity": 0,
+        "traversal": {"kind": "path", "verb": "Walk", "noun": "last step"},
         "fallback_title": "Arriving",
         "role": ("ARRIVAL. They REACH the destination. Gentle, joyful, and "
                  "impossible to get wrong - say so warmly."),
     },
 ]
+
+# The slots that carry a question, in order. The three authored templates
+# below predate interludes and hold exactly this many prose entries, so they
+# map onto these slots positionally.
+QUESTION_SLOTS = [s["slot"] for s in FULL_SKELETON if not s.get("no_question")]
+
+# The model is always shown the FULL skeleton, whatever arc the child ends up
+# with, so an outline written before the topic was chosen always has enough
+# beats in it. `build_skeleton` then selects the stops this quest actually
+# uses and picks the prose out by slot.
+JOURNEY_SKELETON = FULL_SKELETON
+
+# The authored templates are now PROSE PACKS, not beat lists: the machinery
+# lives in FULL_SKELETON and only the words come from the template. Their
+# seven authored beats line up with the seven question slots in order, which
+# is how every word already written for this game survived the V3 rewrite.
+for _tpl in TEMPLATES:
+    _tpl["prose"] = {
+        slot: {k: b.get(k, "") for k in ("title", "intro", "intro_alt", "on_success")}
+        for slot, b in zip(QUESTION_SLOTS, _tpl["beats"])
+    }
+
+# ------------------------------------------------------------- complexity
+#
+# "A speed/distance/time quest for ages 9-10 should have a materially more
+# complex storyline than an addition quest for ages 4-6." Complexity is a
+# 0-5 score from the age band plus the topic, and it drives THREE things:
+# how many stops the arc has, how long each traversal is, and which
+# vocabulary register the offline prose uses.
+
+BAND_COMPLEXITY = {"k1": 0, "23": 1, "45": 2}
+TOPIC_COMPLEXITY = {
+    "counting_and_comparing": 0,
+    "addition": 0,
+    "subtraction": 0,
+    "time_and_money": 1,
+    "geometry": 1,
+    "multiplication": 1,
+    "fractions": 2,
+    "decimals": 2,
+    "algebra": 2,
+    "speed_distance_time": 3,
+}
+
+
+def complexity_for(band: str, topic: str) -> int:
+    """0 (ages 4-6 doing addition) .. 5 (ages 9-10 doing speed/distance)."""
+    return (BAND_COMPLEXITY.get(band, 1)
+            + TOPIC_COMPLEXITY.get(topic, 1))
+
+
+def register_for(complexity: int) -> str:
+    """Which vocabulary the offline prose should speak in."""
+    return "simple" if complexity <= 1 else "rich"
+
+
+def traversal_steps(complexity: int, is_interlude: bool) -> int:
+    """How far the child walks before the next thing happens.
+
+    Short enough that a four-year-old does not get bored on the way to the
+    question; long enough at the top end that a nine-year-old feels like
+    they are actually travelling.
+    """
+    base = 2 + complexity // 2
+    if is_interlude:
+        base += 1
+    return max(2, min(6, base))
+
+
+def build_skeleton(band: str, topic: str) -> list[dict]:
+    """The mechanical arc for THIS child, THIS topic.
+
+    Returns a subsequence of FULL_SKELETON - same dicts, same order, same
+    `slot` numbers - so prose written against the full skeleton still lines
+    up however many stops got dropped.
+    """
+    c = complexity_for(band, topic)
+    out = []
+    for skel in FULL_SKELETON:
+        if c < skel.get("min_complexity", 0):
+            continue
+        beat = {k: v for k, v in skel.items()
+                if k not in ("role", "fallback_title", "traversal")}
+        tv = dict(skel.get("traversal") or {})
+        tv["steps"] = traversal_steps(c, bool(skel.get("no_question")))
+        beat["traversal"] = tv
+        beat["complexity"] = c
+        out.append(beat)
+    return out
+
+
+# Prose for the interlude stops, in both vocabulary registers. These are the
+# beats with NO MATHS IN THEM - the whole point is that the child does
+# something with their hands and the story moves anyway.
+INTERLUDE_PROSE = {
+    ("stones", "simple"): {
+        "title": "The Stepping Stones",
+        "intro": "Flat stones cross the water, one hop apart. Off you go, {char}!",
+        "on_success": "{char} lands on the far side with dry paws. Easy.",
+    },
+    ("stones", "rich"): {
+        "title": "The Stepping Stones",
+        "intro": ("The water runs fast and cold here, but someone long ago laid "
+                  "flat stones across it. {char} judges the gaps, and jumps."),
+        "on_success": ("The last stone wobbles, holds, and {char} is across - "
+                       "breathing hard, entirely pleased."),
+    },
+    ("ledge", "simple"): {
+        "title": "The Ledges",
+        "intro": "Little shelves of rock go up like stairs. Climb them, {char}!",
+        "on_success": "Up and up, and there {char} is at the top.",
+    },
+    ("ledge", "rich"): {
+        "title": "The Cliff Ledges",
+        "intro": ("The cliff is not smooth after all - it is a staircase of narrow "
+                  "ledges, each one a stretch above the last. {char} reaches up."),
+        "on_success": ("{char} hauls over the final lip and lies flat for a "
+                       "moment, looking at how far down the world has gone."),
+    },
+    ("log", "simple"): {
+        "title": "The Fallen Log",
+        "intro": "A big log lies across the path. Push it, {char}!",
+        "on_success": "The log rolls away. The path is open again.",
+    },
+    ("log", "rich"): {
+        "title": "The Fallen Log",
+        "intro": ("A storm-felled trunk lies square across the way, too high to "
+                  "climb and too long to walk around. It will have to be shifted."),
+        "on_success": ("It grinds, tips, and rolls off into the ferns. {char} "
+                       "dusts off both hands."),
+    },
+}
+
+# What the child is told to DO during a traversal, by kind. The frontend
+# renders this under the story line while the arrow keys are live.
+TRAVERSAL_HINT = {
+    "stones": "Hop from stone to stone with the arrow keys",
+    "ledge": "Climb the ledges with the arrow keys",
+    "log": "Push the log along with the arrow keys",
+    "gate": "Work the latches open with the arrow keys",
+    "reeds": "Wade through with the arrow keys",
+    "path": "Follow the trail with the arrow keys",
+}
 
 # When no destination was typed, one is inferred from the setting the child's
 # drawing implies. Deliberately concrete: "somewhere nice" is not a goal a
@@ -556,8 +793,9 @@ def default_location(beat: dict, setting: str, goal: str) -> str:
 
 HELPER_BEAT = {
     "key": "helper", "kind": "helper", "title": "A Friend Catches Up",
-    "camera": "left_bank", "tint": "day", "level_delta": -2,
+    "slot": 2, "camera": "left_bank", "tint": "day", "level_delta": -2,
     "mechanic": ["pick", "collect"], "helper": True,
+    "traversal": {"kind": "path", "verb": "Walk", "noun": "step", "steps": 2},
     "intro": ("Something comes bounding over the rise - it's {friend}, {friend_desc}! "
               "\"Budge up,\" says {friend}. \"Two heads. Let's do an easy one "
               "together first.\""),
@@ -582,22 +820,71 @@ def new_state() -> dict:
     }
 
 
-def _beats_from_storyline(storyline: dict) -> list[dict]:
-    """Fuse AI prose onto the fixed skeleton. Machinery always wins."""
+def _fallback_prose(skel: dict, register: str) -> dict:
+    """Authored prose for a stop the writer did not cover.
+
+    Interludes have their own two-register table; everything else falls back
+    to the generic trail, which has a line for every question slot.
+    """
+    if skel.get("no_question"):
+        kind = (skel.get("traversal") or {}).get("kind", "stones")
+        prose = (INTERLUDE_PROSE.get((kind, register))
+                 or INTERLUDE_PROSE.get((kind, "simple"))
+                 or INTERLUDE_PROSE[("stones", "simple")])
+        return dict(prose)
+    src = GENERIC_TRAIL["prose"].get(skel["slot"], {})
+    return {"title": src.get("title") or FULL_SKELETON[skel["slot"]]["fallback_title"],
+            "intro": src.get("intro", ""),
+            "intro_alt": src.get("intro_alt", ""),
+            "on_success": src.get("on_success", "")}
+
+
+def _apply_prose(beat: dict, prose: dict) -> None:
+    beat["title"] = prose.get("title") or ""
+    beat["intro"] = prose.get("intro") or ""
+    beat["on_success"] = prose.get("on_success") or ""
+    if prose.get("intro_alt"):
+        beat["intro_alt"] = prose["intro_alt"]
+    if prose.get("advances"):
+        beat["advances"] = prose["advances"]
+    if prose.get("location"):
+        beat["location"] = prose["location"]
+
+
+def _beats_from_storyline(storyline: dict, skeleton: list[dict],
+                          register: str) -> list[dict]:
+    """Fuse AI prose onto the built skeleton. Machinery always wins.
+
+    The model is always asked for the FULL skeleton, so `slot` indexes
+    straight into what it wrote. A short or ragged outline no longer costs
+    the child the whole quest - the missing stops fall back to authored
+    prose one at a time.
+    """
+    written = storyline.get("beats") or []
     beats = []
-    for skel, written in zip(JOURNEY_SKELETON, storyline["beats"]):
-        beat = {k: v for k, v in skel.items() if k not in ("role", "fallback_title")}
-        beat["title"] = written["title"]
-        beat["intro"] = written["intro"]
-        beat["on_success"] = written["on_success"]
-        beat["location"] = written["location"]
-        beat["advances"] = written.get("advances", "")
+    for skel in skeleton:
+        beat = dict(skel)
+        slot = skel["slot"]
+        src = written[slot] if slot < len(written) and isinstance(written[slot], dict) else None
+        if src and (src.get("intro") or "").strip():
+            _apply_prose(beat, src)
+            beat["advances"] = src.get("advances", "")
+            beat["location"] = src.get("location", "")
+        else:
+            _apply_prose(beat, _fallback_prose(skel, register))
         beats.append(beat)
     return beats
 
 
-def _beats_from_template(tpl: dict) -> list[dict]:
-    return [dict(b) for b in tpl["beats"]]
+def _beats_from_template(tpl: dict, skeleton: list[dict],
+                         register: str) -> list[dict]:
+    beats = []
+    for skel in skeleton:
+        beat = dict(skel)
+        prose = tpl["prose"].get(skel["slot"]) or _fallback_prose(skel, register)
+        _apply_prose(beat, prose)
+        beats.append(beat)
+    return beats
 
 
 def start_quest(topic: str, band: str, interpretation: dict, seed=None,
@@ -620,8 +907,12 @@ def start_quest(topic: str, band: str, interpretation: dict, seed=None,
     goal_noun = goal_phrase(goal)
     scenery = interpretation.get("setting") or setting
 
+    complexity = complexity_for(band, topic)
+    register = register_for(complexity)
+    skeleton = build_skeleton(band, topic)
+
     if storyline:
-        beats = _beats_from_storyline(storyline)
+        beats = _beats_from_storyline(storyline, skeleton, register)
         template_id = "ai_generated"
         title = storyline["title"]
         # The model sometimes echoes the instruction back ("cross the river")
@@ -636,7 +927,7 @@ def start_quest(topic: str, band: str, interpretation: dict, seed=None,
         story_source = storyline.get("source", "openai")
     else:
         tpl = pick_template(setting, rng)
-        beats = _beats_from_template(tpl)
+        beats = _beats_from_template(tpl, skeleton, register)
         template_id = tpl["id"]
         title = _fmt(tpl["title"], char=char, setting=setting, Setting=setting.title())
         goal_text = goal_noun
@@ -680,6 +971,10 @@ def start_quest(topic: str, band: str, interpretation: dict, seed=None,
         "opening": opening,
         "epilogue_tpl": epilogue_tpl,
         "awaiting_answer": False,
+        # V3: how ornate this quest is allowed to be, and how it talks.
+        "complexity": complexity,
+        "register": register,
+        "interludes": sum(1 for b in beats if b.get("no_question")),
     }
 
 
@@ -765,22 +1060,34 @@ def _pick_archetype(topic, band, mechanics, used=(), rng=None) -> str | None:
     """Honour the beat's preferred mechanic, then prefer a mechanic the child
     has not played yet this quest - that is what kills "it's only stepping
     stones"."""
-    available = math_engine.archetypes_for(topic, band)
+    # `playable_archetypes`, not `archetypes_for`: ages 4-6 must never be
+    # handed an archetype whose answers are words.
+    available = math_engine.playable_archetypes(topic, band)
     if not available:
         return None
     rng = rng or random
     used = list(used)
+
+    # Pass 1: the first PREFERRED mechanic that still has something the child
+    # has not played. Taking the first mechanic that merely *exists* is what
+    # made a k1 geometry quest four shape-doors in a row - "pick" was always
+    # first in the beat's list and always had a pool.
     for mech in (mechanics or []):
-        pool = [a for a in available if MECHANIC_OF.get(a) == mech]
-        if not pool:
-            continue
-        unseen = [a for a in pool if a not in used]
+        unseen = [a for a in available
+                  if MECHANIC_OF.get(a) == mech and a not in used]
         if unseen:
             return rng.choice(unseen)
-        # all seen: take the least recently used one in this mechanic
-        return min(pool, key=lambda a: len(used) - 1 - used[::-1].index(a))
+
+    # Pass 2: anything at all the child has not played yet, preferred
+    # mechanics first so the narration still roughly matches.
     unseen = [a for a in available if a not in used]
-    return rng.choice(unseen or available)
+    if unseen:
+        return rng.choice(unseen)
+
+    # Pass 3: everything has been played - take the least recently used, so
+    # repeats are at least spread out.
+    return min(available, key=lambda a: len(used) - 1 - used[::-1].index(a)
+               if a in used else -1)
 
 
 def current_beat(quest: dict) -> dict | None:
@@ -789,61 +1096,133 @@ def current_beat(quest: dict) -> dict | None:
     return quest["beats"][quest["index"]]
 
 
+def traversal_for(quest: dict, beat: dict) -> dict:
+    """The keyboard journey the child plays to REACH this beat.
+
+    This is the answer to "the questions don't relate to each other": you no
+    longer get a question, you walk somewhere and find one. The frontend
+    renders `steps` nodes across the lower third of the art and only reveals
+    the question once the hero has touched the last one.
+    """
+    tv = dict(beat.get("traversal") or {})
+    kind = tv.get("kind", "stones")
+    steps = int(tv.get("steps") or traversal_steps(quest.get("complexity", 1),
+                                                   bool(beat.get("no_question"))))
+    noun = tv.get("noun", "stepping stone")
+    verb = tv.get("verb", "Hop")
+    plural = noun if noun.endswith("s") else noun + "s"
+    return {
+        "kind": kind,
+        "steps": max(1, min(8, steps)),
+        "verb": verb,
+        "noun": noun,
+        "label": f"{verb} the {steps} {plural}",
+        "hint": TRAVERSAL_HINT.get(kind, TRAVERSAL_HINT["path"]),
+        "gates_question": not beat.get("no_question"),
+    }
+
+
+def _interlude_challenge(quest: dict, beat: dict, ctx: dict) -> dict:
+    """A stop with NO MATHS IN IT. Pure story, played with the arrow keys."""
+    return {
+        "question_type": "interlude",
+        "grade_mode": "none",
+        "prompt": "",
+        "narrative": _fmt(beat.get("intro", ""), **ctx),
+        "explanation": "",
+        "target_count": 0,
+        "stones": [],
+        "props": [],
+        "answer_order": None,
+        "answer_sum": None,
+        "answer_group_count": None,
+        "tolerance": 0,
+        "play_area": {"top_pct": 0.55, "bottom_pct": 0.95},
+        "archetype": "interlude",
+        "topic": quest["topic"],
+        "band": quest["band"],
+        "level": 0,
+        "character_name": quest["char"],
+        "setting": quest["setting"],
+        "obstacle_count": 0,
+    }
+
+
 def issue_beat(quest: dict, session_level: int, mistakes_total: int = 0,
                seed=None) -> dict:
-    """Generate the challenge for the quest's current beat."""
+    """Generate the challenge (or the interlude) for the current beat."""
     beat = current_beat(quest)
     if beat is None:
         return None
     rng = random.Random(seed)
 
     level = max(1, min(5, int(session_level) + int(beat.get("level_delta", 0))))
+    is_interlude = bool(beat.get("no_question"))
+    ctx = _ctx(quest, subject="", carried=0)
 
-    archetype = _pick_archetype(quest["topic"], quest["band"],
-                                beat.get("mechanic"),
-                                quest.setdefault("used_archetypes", []), rng)
+    if is_interlude:
+        challenge = _interlude_challenge(quest, beat, ctx)
+        archetype = "interlude"
+    else:
+        archetype = _pick_archetype(quest["topic"], quest["band"],
+                                    beat.get("mechanic"),
+                                    quest.setdefault("used_archetypes", []), rng)
 
-    # --- obstacle reconciliation -------------------------------------
-    # Mistakes buy NAVIGATIONAL obstacles (things to walk around) and extra
-    # beats - never extra wrong answers. The math gets easier, the journey
-    # gets longer. See REPORT / _add_navigation_obstacles in math_engine.
-    nav = min(int(mistakes_total or 0), 3)
-    if beat.get("kind") == "obstacle":
-        nav += 2
-    if beat.get("kind") in ("resolution", "helper"):
-        nav = 0
-    nav = min(nav, 5)
+        # --- obstacle reconciliation ---------------------------------
+        # Mistakes buy NAVIGATIONAL obstacles (things to walk around) and
+        # extra beats - never extra wrong answers. The math gets easier, the
+        # journey gets longer. See _add_navigation_obstacles in math_engine.
+        nav = min(int(mistakes_total or 0), 3)
+        if beat.get("kind") == "obstacle":
+            nav += 2
+        if beat.get("kind") in ("resolution", "helper"):
+            nav = 0
+        nav = min(nav, 5)
 
-    challenge = math_engine.generate_challenge(
-        topic=quest["topic"],
-        band=quest["band"],
-        level=level,
-        character_name=quest["char"],
-        objects=[quest["setting"]],
-        archetype=archetype,
-        nav_obstacles=nav,
-        exclude_archetypes=[quest.get("last_archetype")] if quest.get("last_archetype") else (),
-        seed=rng.randrange(1 << 30),
-    )
-    quest["last_archetype"] = challenge.get("archetype")
-    quest["used_archetypes"].append(challenge.get("archetype"))
+        challenge = None
+        if beat.get("finale"):
+            # THE FINAL CHALLENGE. Its numbers are the child's own haul, so
+            # it is only answerable because of the stops that came before it.
+            # None means they gathered nothing - fall through to a normal
+            # (hard) climax rather than inventing a haul they never had.
+            challenge = math_engine.generate_finale(
+                topic=quest["topic"], band=quest["band"], level=level,
+                carried=quest["state"], character_name=quest["char"],
+                objects=[quest["setting"]], seed=rng.randrange(1 << 30),
+            )
+        if challenge is None:
+            challenge = math_engine.generate_challenge(
+                topic=quest["topic"],
+                band=quest["band"],
+                level=level,
+                character_name=quest["char"],
+                objects=[quest["setting"]],
+                archetype=archetype,
+                nav_obstacles=nav,
+                exclude_archetypes=([quest.get("last_archetype")]
+                                    if quest.get("last_archetype") else ()),
+                seed=rng.randrange(1 << 30),
+            )
+        quest["last_archetype"] = challenge.get("archetype")
+        quest.setdefault("used_archetypes", []).append(challenge.get("archetype"))
 
-    # The story names the place and the stakes; the NOUN comes from the
-    # challenge that actually got generated, so narration never promises
-    # planks and then hand over a berry sum.
-    subject = subject_of(challenge)
-    spend = beat.get("spend")
-    carried = quest["state"].get(spend, 0) if spend else 0
-    ctx = _ctx(quest, subject=subject, carried=carried)
+        # The story names the place and the stakes; the NOUN comes from the
+        # challenge that actually got generated, so narration never promises
+        # planks and then hand over a berry sum.
+        subject = subject_of(challenge)
+        spend = beat.get("spend")
+        carried = quest["state"].get(spend, 0) if spend else 0
+        ctx = _ctx(quest, subject=subject, carried=carried)
 
     intro_src = beat.get("intro", "")
-    if spend and not carried and beat.get("intro_alt"):
+    spend = beat.get("spend")
+    if spend and not quest["state"].get(spend, 0) and beat.get("intro_alt"):
         intro_src = beat["intro_alt"]
 
     challenge["beat"] = {
         "index": quest["index"],
         "total": len(quest["beats"]),
-        "title": _fmt(beat["title"], **ctx),
+        "title": _fmt(beat.get("title", ""), **ctx),
         "camera": beat.get("camera", "wide"),
         "tint": beat.get("tint", "day"),
         "intro": _fmt(intro_src, **ctx),
@@ -858,10 +1237,32 @@ def issue_beat(quest: dict, session_level: int, mistakes_total: int = 0,
         "distance_remaining": distance_remaining(quest),
         "distance_text": distance_text(quest),
         "is_final": quest["index"] >= len(quest["beats"]) - 1,
+        # --- V3 -----------------------------------------------------------
+        "is_interlude": is_interlude,
+        "is_finale": bool(challenge.get("is_finale")),
+        "complexity": quest.get("complexity", 1),
     }
+    # The walk that gates this beat. Always present - even the arrival beat
+    # is reached on foot.
+    challenge["traversal"] = traversal_for(quest, beat)
     challenge["no_fail"] = bool(beat.get("no_fail"))
     challenge["quest_state"] = dict(quest["state"])
-    quest["awaiting_answer"] = True
+
+    if is_interlude:
+        # Nothing to answer, so nothing to wait for: the beat is already
+        # spent the moment it is issued, and the journey moves on when the
+        # child finishes walking it.
+        quest["awaiting_answer"] = False
+        quest["log"].append({
+            "index": quest["index"],
+            "title": challenge["beat"]["title"],
+            "kind": "interlude",
+            "archetype": "interlude",
+            "prompt": "",
+            "correct": True,
+        })
+    else:
+        quest["awaiting_answer"] = True
     return challenge
 
 
@@ -875,6 +1276,10 @@ def _reward_amount(challenge: dict) -> int:
         n = int(challenge.get("target_count") or 1)
     elif mode == "order":
         n = int(challenge.get("perimeter") or challenge.get("target_count") or 1)
+    elif mode == "value":
+        n = int(round(abs(float(challenge.get("answer_value") or 1))))
+    elif mode == "none":
+        n = 1
     else:
         n = 1
         for s in challenge.get("stones", []):
@@ -1071,4 +1476,7 @@ def summary(quest: dict) -> dict:
         "distance_remaining": distance_remaining(quest),
         "distance_text": distance_text(quest),
         "beats_done": beats_done(quest),
+        "complexity": quest.get("complexity", 1),
+        "register": quest.get("register", "simple"),
+        "interludes": quest.get("interludes", 0),
     }

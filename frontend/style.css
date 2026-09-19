@@ -1,290 +1,499 @@
-/* ── Doodle Quest — pastel cutesy theme, ages 4-10 ───────────────── */
+/* ══════════════════════════════════════════════════════════════════════
+   Do-IT-oodle — design system
+
+   PALETTE NOTE (2026-09-19). The old theme was pink + lavender pastel and
+   the team's verdict was that it read "very girly and childish". The new
+   palette is built OUTWARD FROM THE BRAND — the deck's warm peach, orange,
+   sun-yellow and cream — and balanced with moss green, deep teal, clay and
+   slate so it lands as a warm ADVENTURE SKETCHBOOK rather than a nursery.
+
+   Rules if you touch this:
+     · pink and lavender are ACCENTS at most, never structure;
+     · warm neutrals carry the page, saturated colour marks the action;
+     · keep the big radii and the chunky 3D button shadows — the friendly
+       read was never the problem, the sugar was;
+     · body text on parchment must stay at/above 7:1 (--ink on --paper).
+   ══════════════════════════════════════════════════════════════════════ */
 
 :root{
-  --pink:#ffd3e2; --pink-deep:#ff8fb8; --mint:#c9f2e4; --mint-deep:#5fd0ae;
-  --lav:#e0d7ff;  --lav-deep:#a98cff;  --lemon:#fff2bf; --lemon-deep:#ffd24a;
-  --peach:#ffe0cc; --sky:#d4ecff;      --sky-deep:#6fc0ff;
-  --ink:#4a3b52;  --ink-soft:#7d6b86;  --cream:#fffaf4;
-  --shadow:0 6px 0 rgba(122,96,134,.18), 0 14px 30px rgba(122,96,134,.16);
-  --radius:26px;
+  /* ── brand (mirrored from brand.js at boot; these are the fallbacks) ── */
+  --brand-peach:#F8D2BF; --brand-orange:#F0965B; --brand-sun:#F4D372;
+  --brand-cream:#F8E4C8; --brand-rose:#EA93A3;  --brand-yellow:#F9DC7A;
+  --brand-green:#8FC68C; --brand-blue:#86C2EE;  --brand-ink:#33291F;
+
+  /* ── surfaces ── */
+  --paper:#FFF8EE;          /* cards, panels */
+  --paper-2:#F6E9D6;        /* the shaded edge of paper */
+  --parchment:#F3E3CA;
+  --board:#2B2621;          /* behind the full-bleed stage */
+
+  /* ── ink ── */
+  --ink:#33291F;
+  --ink-soft:#7A6A58;
+  --ink-faint:#A79581;
+
+  /* ── the working colours ── */
+  --amber:#E0913A;   --amber-soft:#FBE7B4;
+  --clay:#C2643E;    --clay-soft:#F6D2C0;
+  --moss:#6BA36A;    --moss-soft:#D3E6CD;
+  --teal:#2E7E7B;    --teal-soft:#C2E0DC;
+  --slate:#5A6C88;   --slate-soft:#D7DEE9;
+  --sky:#3E85BE;     --sky-soft:#CFE4F6;
+  --rose:#C2566B;    --rose-soft:#F3CCD2;
+
+  --line:#D8BE97;
+  --shadow:0 4px 0 rgba(90,62,38,.20), 0 14px 30px rgba(60,44,30,.18);
+  --radius:22px;
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
 
 /* The browser's own [hidden]{display:none} loses to ANY author rule that
    sets `display` — which is most of the rows below. Everything the JS hides
-   with el.hidden=true (the quest trail, the chapter row, the reveal image)
-   would otherwise stay stubbornly on screen. */
+   with el.hidden=true would otherwise stay stubbornly on screen. */
 [hidden]{display:none !important}
 
 body{
   font-family:'Baloo 2', ui-rounded, 'Quicksand', 'Trebuchet MS', system-ui, sans-serif;
   color:var(--ink);
-  background:linear-gradient(170deg,#fff6fb 0%, #eef6ff 45%, #f3fff9 100%);
+  background:
+    radial-gradient(120% 90% at 50% 0%, #FFF3E2 0%, rgba(255,243,226,0) 60%),
+    linear-gradient(168deg,#FDEFE0 0%, #F6E7D2 46%, #EFE6D3 100%);
   min-height:100vh; overflow-x:hidden;
 }
 
-/* floating clouds */
-.sky-decor{position:fixed;inset:0;pointer-events:none;z-index:0}
-.cloud{position:absolute;width:150px;height:56px;background:#fff;border-radius:60px;opacity:.6;
-  box-shadow:36px -18px 0 -6px #fff, -34px -12px 0 -10px #fff}
-.c1{top:9%;left:-12%;animation:drift 58s linear infinite}
-.c2{top:38%;left:-20%;transform:scale(.65);animation:drift 78s linear infinite 6s}
-.c3{top:68%;left:-15%;transform:scale(.85);animation:drift 92s linear infinite 14s}
-@keyframes drift{to{left:118%}}
+/* ── the brand wordmark ────────────────────────────────────────────────
+   Live text, so it scales, reflows and reads out. The "IT" is the pun and
+   gets the emphasis; everything else is the outlined bubble face. */
+.wordmark{
+  font-weight:800; letter-spacing:-.5px; line-height:1;
+  color:var(--brand-orange);
+  -webkit-text-stroke:0;
+  text-shadow:
+    2px 2px 0 var(--brand-sun), -2px 2px 0 var(--brand-sun),
+    2px -2px 0 var(--brand-sun), -2px -2px 0 var(--brand-sun),
+    0 5px 0 rgba(150,90,50,.22);
+  white-space:nowrap;
+}
+.wordmark .it{color:var(--brand-sun);
+  text-shadow:2px 2px 0 var(--brand-orange), -2px 2px 0 var(--brand-orange),
+    2px -2px 0 var(--brand-orange), -2px -2px 0 var(--brand-orange),
+    0 5px 0 rgba(150,90,50,.22)}
+#title-wordmark{font-size:clamp(40px,8vw,74px);margin:2px 0 14px}
+.wordmark-sm{font-size:clamp(17px,2.4vw,22px)}
+.wordmark-xs{font-size:15px;text-shadow:1px 1px 0 var(--brand-sun),-1px 1px 0 var(--brand-sun),
+  1px -1px 0 var(--brand-sun),-1px -1px 0 var(--brand-sun)}
+.wordmark-xs .it{text-shadow:1px 1px 0 var(--brand-orange),-1px 1px 0 var(--brand-orange),
+  1px -1px 0 var(--brand-orange),-1px -1px 0 var(--brand-orange)}
+.brand-logo{display:block;margin:0 auto 4px;width:min(340px,72%);height:auto}
+.brand-mark{display:block;margin:0 auto;width:112px;height:auto}
 
 /* ── screens ─────────────────────────────────────────────────────── */
-.screen{display:none;position:relative;z-index:1;padding:26px clamp(14px,4vw,44px);
+.screen{display:none;position:relative;z-index:1;padding:24px clamp(14px,4vw,44px);
   max-width:1180px;margin:0 auto;min-height:100vh}
 .screen.active{display:block;animation:fadeup .45s ease both}
-@keyframes fadeup{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes fadeup{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 
-.screen-head{display:flex;align-items:center;gap:16px;margin-bottom:22px;flex-wrap:wrap}
-.screen-head h2{font-size:clamp(20px,3vw,30px);flex:1}
+.screen-head{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
+.screen-head h2{font-size:clamp(19px,2.8vw,28px);flex:1}
 .step-dots{display:flex;gap:7px}
-.step-dots i{width:11px;height:11px;border-radius:50%;background:#e6dced;display:block}
-.step-dots i.on{background:var(--pink-deep)}
+.step-dots i{width:11px;height:11px;border-radius:50%;background:#E2D2BA;display:block}
+.step-dots i.on{background:var(--brand-orange)}
 
 /* ── buttons ─────────────────────────────────────────────────────── */
 .btn{font-family:inherit;font-weight:700;font-size:16px;color:var(--ink);cursor:pointer;
-  border:none;border-radius:999px;padding:12px 24px;background:var(--lemon);
-  box-shadow:0 4px 0 rgba(122,96,134,.2);transition:transform .12s, box-shadow .12s, filter .12s}
-.btn:hover{transform:translateY(-2px);box-shadow:0 6px 0 rgba(122,96,134,.2);filter:brightness(1.03)}
-.btn:active{transform:translateY(2px);box-shadow:0 2px 0 rgba(122,96,134,.2)}
+  border:none;border-radius:999px;padding:12px 24px;background:var(--brand-sun);
+  box-shadow:0 4px 0 rgba(120,80,45,.28);transition:transform .12s, box-shadow .12s, filter .12s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 6px 0 rgba(120,80,45,.28);filter:brightness(1.04)}
+.btn:active{transform:translateY(2px);box-shadow:0 2px 0 rgba(120,80,45,.28)}
 .btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
-.btn-big{font-size:22px;padding:18px 42px;background:linear-gradient(135deg,var(--pink) 0%,var(--lav) 100%)}
+.btn:focus-visible{outline:3px solid var(--teal);outline-offset:3px}
+.btn-big{font-size:21px;padding:17px 40px;
+  background:linear-gradient(135deg,var(--brand-orange) 0%,var(--brand-sun) 100%)}
 .btn-full{width:100%;margin-top:18px}
-.btn-soft{background:var(--mint)}
-.btn-ghost{background:#fff;box-shadow:0 3px 0 rgba(122,96,134,.14)}
+.btn-soft{background:var(--moss-soft)}
+.btn-ghost{background:var(--paper);box-shadow:0 3px 0 rgba(120,80,45,.20)}
 .btn-tiny{padding:8px 14px;font-size:14px}
 
 /* ── title ───────────────────────────────────────────────────────── */
 #screen-title.active{display:flex;align-items:center;justify-content:center}
-.title-card{text-align:center;background:var(--cream);border-radius:44px;padding:clamp(34px,6vw,64px);
-  box-shadow:var(--shadow);max-width:680px}
-.logo-doodle{font-size:84px;animation:bob 2.6s ease-in-out infinite}
-@keyframes bob{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-14px) rotate(4deg)}}
-.title-card h1{font-size:clamp(44px,8vw,76px);font-weight:800;letter-spacing:-1px;
-  background:linear-gradient(120deg,var(--pink-deep),var(--lav-deep) 55%,var(--mint-deep));
-  -webkit-background-clip:text;background-clip:text;color:transparent;margin:6px 0 14px}
-.tagline{font-size:clamp(16px,2.3vw,21px);color:var(--ink-soft);line-height:1.6;margin-bottom:30px}
-.ai-status{margin-top:20px;font-size:14px;color:var(--ink-soft)}
+.title-card{text-align:center;background:var(--paper);border-radius:40px;
+  padding:clamp(30px,5vw,56px);box-shadow:var(--shadow);max-width:720px;
+  border:2px solid var(--line)}
+.tagline{font-size:clamp(15px,2vw,19px);color:var(--ink-soft);line-height:1.55;
+  margin:0 auto 26px;max-width:38ch}
+.ai-status{margin-top:18px;font-size:14px;color:var(--ink-soft)}
 
 /* ── create ──────────────────────────────────────────────────────── */
-.create-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:22px}
+.create-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:20px}
 @media(max-width:920px){.create-grid{grid-template-columns:1fr}}
-.panel{background:var(--cream);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
-.panel h3{font-size:19px;margin-bottom:12px}
+.panel{background:var(--paper);border-radius:var(--radius);padding:20px;
+  box-shadow:var(--shadow);border:2px solid var(--line)}
+.panel h3{font-size:18px;margin-bottom:12px}
 .panel h3.mt{margin-top:22px}
 .panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
 .tool-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:10px}
 .swatches{display:flex;gap:6px}
 .swatch{width:26px;height:26px;border-radius:50%;border:3px solid #fff;cursor:pointer;
-  box-shadow:0 2px 5px rgba(0,0,0,.14);transition:transform .12s}
+  box-shadow:0 2px 5px rgba(0,0,0,.16);transition:transform .12s}
 .swatch:hover{transform:scale(1.15)}
 .swatch.sel{transform:scale(1.25);border-color:var(--ink)}
 .size-wrap{font-size:13px;color:var(--ink-soft);display:flex;align-items:center;gap:6px}
-.size-wrap input{width:76px;accent-color:var(--pink-deep)}
+.size-wrap input{width:76px;accent-color:var(--brand-orange)}
 
-#draw-canvas{width:100%;height:auto;aspect-ratio:720/460;background:#fff;border-radius:20px;
-  border:4px dashed var(--lav);cursor:crosshair;touch-action:none;display:block}
+#draw-canvas{width:100%;height:auto;aspect-ratio:720/460;background:#fff;border-radius:18px;
+  border:4px dashed var(--brand-orange);cursor:crosshair;touch-action:none;display:block}
 .hint{font-size:14px;color:var(--ink-soft);margin-top:10px;text-align:center}
 
 textarea{width:100%;font-family:inherit;font-size:16px;color:var(--ink);padding:14px;
-  border-radius:18px;border:3px solid var(--mint);background:#fff;resize:vertical;outline:none}
-textarea:focus{border-color:var(--mint-deep)}
+  border-radius:16px;border:3px solid var(--moss-soft);background:#fff;resize:vertical;outline:none}
+textarea:focus{border-color:var(--moss)}
 /* Without this the placeholder renders near-black and reads as real typed
-   text - you cannot tell whether you described your character or not. */
-textarea::placeholder{color:#c3b4c9;font-weight:500;opacity:1}
-.mic-status{font-size:14px;color:var(--pink-deep);min-height:20px;margin-top:8px}
+   text — you cannot tell whether you described your character or not. */
+textarea::placeholder{color:#B9A891;font-weight:500;opacity:1}
+.mic-status{font-size:14px;color:var(--clay);min-height:20px;margin-top:8px}
 #btn-mic{margin-top:10px}
-#btn-mic.rec{background:var(--pink-deep);color:#fff;animation:pulse 1.1s infinite}
+#btn-mic.rec{background:var(--clay);color:#fff;animation:pulse 1.1s infinite}
 @keyframes pulse{50%{filter:brightness(1.18)}}
 
 /* ── destination (optional) ──────────────────────────────────────── */
-.optional-tag{display:inline-block;vertical-align:middle;margin-left:6px;background:var(--lav);
-  color:var(--ink-soft);border-radius:999px;padding:3px 11px;font-size:11px;font-weight:800;
-  letter-spacing:.1em;text-transform:uppercase}
+.optional-tag{display:inline-block;vertical-align:middle;margin-left:6px;
+  background:var(--slate-soft);color:var(--ink-soft);border-radius:999px;padding:3px 11px;
+  font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
 .dest-input{width:100%;font-family:inherit;font-size:16px;font-weight:500;color:var(--ink);
-  padding:13px 16px;border-radius:18px;border:3px solid var(--peach);background:#fff;outline:none}
-.dest-input::placeholder{color:#c3b4c9;font-weight:500}
-.dest-input:focus{border-color:#ff9a6c}
+  padding:13px 16px;border-radius:16px;border:3px solid var(--brand-peach);background:#fff;outline:none}
+.dest-input::placeholder{color:#B9A891;font-weight:500}
+.dest-input:focus{border-color:var(--brand-orange)}
 .dest-examples{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
 .dest-chip{font-family:inherit;font-size:13px;font-weight:700;color:var(--ink-soft);cursor:pointer;
-  background:#fff;border:2px dashed var(--peach);border-radius:999px;padding:6px 13px;
+  background:#fff;border:2px dashed var(--brand-peach);border-radius:999px;padding:6px 13px;
   transition:transform .12s, background .12s, color .12s}
-.dest-chip:hover{transform:translateY(-2px);background:var(--peach);color:var(--ink)}
+.dest-chip:hover{transform:translateY(-2px);background:var(--brand-peach);color:var(--ink)}
 .dest-note{font-size:13px;color:var(--ink-soft);margin-top:8px}
 
 .theme-row{display:flex;gap:9px;flex-wrap:wrap}
-.theme-chip{padding:9px 17px;border-radius:999px;background:#fff;border:3px solid var(--lav);
+.theme-chip{padding:9px 16px;border-radius:999px;background:#fff;border:3px solid var(--teal-soft);
   cursor:pointer;font-weight:700;font-size:14px;transition:all .14s}
-.theme-chip.sel{background:var(--lav);border-color:var(--lav-deep)}
+.theme-chip.sel{background:var(--teal-soft);border-color:var(--teal)}
 .toggle{display:flex;align-items:center;gap:10px;margin-top:18px;font-size:15px;cursor:pointer}
-.toggle input{width:20px;height:20px;accent-color:var(--pink-deep);cursor:pointer}
+.toggle input{width:20px;height:20px;accent-color:var(--teal);cursor:pointer}
 
 /* ── loading ─────────────────────────────────────────────────────── */
 #screen-loading.active{display:flex;align-items:center;justify-content:center}
-.loading-card{text-align:center;background:var(--cream);border-radius:40px;
-  padding:56px 64px;box-shadow:var(--shadow)}
-.spinner{font-size:66px;animation:spin 1.6s ease-in-out infinite}
-@keyframes spin{0%,100%{transform:rotate(-18deg) scale(1)}50%{transform:rotate(18deg) scale(1.15)}}
-.loading-card h2{margin:20px 0 10px;font-size:26px}
+.loading-card{text-align:center;background:var(--paper);border-radius:36px;
+  padding:48px 56px;box-shadow:var(--shadow);border:2px solid var(--line)}
+.spinner{font-size:62px;animation:spin 1.6s ease-in-out infinite}
+.brand-mark.spin{animation:spin 1.9s ease-in-out infinite}
+@keyframes spin{0%,100%{transform:rotate(-16deg) scale(1)}50%{transform:rotate(16deg) scale(1.12)}}
+.loading-card h2{margin:18px 0 10px;font-size:25px}
 #loading-sub{color:var(--ink-soft)}
 
 /* ── topic select ────────────────────────────────────────────────── */
-.reveal-card{background:var(--cream);border-radius:var(--radius);overflow:hidden;
-  box-shadow:var(--shadow);margin-bottom:24px}
-#reveal-bg{width:100%;max-height:270px;object-fit:cover;display:block}
+.reveal-card{background:var(--paper);border-radius:var(--radius);overflow:hidden;
+  box-shadow:var(--shadow);margin-bottom:22px;border:2px solid var(--line)}
+#reveal-bg{width:100%;max-height:260px;object-fit:cover;display:block}
 .reveal-text{padding:18px 22px}
-.reveal-text h3{font-size:24px;color:var(--pink-deep)}
+.reveal-text h3{font-size:23px;color:var(--clay)}
 .reveal-text p{color:var(--ink-soft);margin-top:5px;font-size:16px}
 
 .band-tabs{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap}
-.band-tab{padding:12px 24px;border-radius:999px;background:#fff;border:3px solid var(--sky);
+.band-tab{padding:12px 22px;border-radius:999px;background:#fff;border:3px solid var(--teal-soft);
   cursor:pointer;font-weight:700;font-family:inherit;font-size:16px;color:var(--ink);transition:all .14s}
-.band-tab.sel{background:var(--sky);border-color:var(--sky-deep)}
+.band-tab.sel{background:var(--teal-soft);border-color:var(--teal)}
 
-.topic-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
-.topic-card{background:var(--cream);border-radius:24px;padding:24px 18px;text-align:center;
-  cursor:pointer;box-shadow:var(--shadow);border:4px solid transparent;transition:all .16s}
-.topic-card:hover{transform:translateY(-5px);border-color:var(--pink)}
-.topic-card .emoji{font-size:44px;display:block;margin-bottom:10px}
-.topic-card .name{font-weight:700;font-size:17px}
+.topic-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:15px}
+.topic-card{background:var(--paper);border-radius:20px;padding:22px 16px;text-align:center;
+  cursor:pointer;box-shadow:var(--shadow);border:3px solid var(--line);transition:all .16s}
+.topic-card:hover{transform:translateY(-5px);border-color:var(--brand-orange)}
+.topic-card .emoji{font-size:40px;display:block;margin-bottom:9px}
+.topic-card .name{font-weight:700;font-size:16px}
 .topic-card .lvl{font-size:13px;color:var(--ink-soft);margin-top:4px}
 .topic-card.locked{opacity:.4;pointer-events:none}
 
-/* ── game ────────────────────────────────────────────────────────── */
-.hud{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap}
-.hud-stats{display:flex;gap:9px;flex:1;flex-wrap:wrap}
-.chip{background:var(--cream);border-radius:999px;padding:9px 17px;font-size:15px;
-  box-shadow:0 3px 0 rgba(122,96,134,.14)}
-.chip b{color:var(--pink-deep)}
+/* ══════════════════════════════════════════════════════════════════════
+   THE GAME STAGE — FULL BLEED
 
-/* ── quest goal + journey trail ──────────────────────────────────
-   A little paper map torn out of the book. The child's hero walks it, a
-   flag marks where they're headed. "Questions are stepping stones" made
-   visible — and it should read as parchment, not as a progress bar. */
-.quest-trail{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px;
-  position:relative;
+   #stage fills the viewport. The painted world is the whole screen. Two
+   absolutely-positioned ZONES sit on it and nothing else does:
+
+       .zone-top       top:0     capped at --zone-top-max
+       .zone-question  bottom:0  capped at --zone-q-max
+
+   They cannot overlap because their caps sum to well under 100vh, and the
+   middle band is left empty ON PURPOSE — app.js measures both rects and
+   confines the hero's play area to what is left, so the character is never
+   under either one. See syncSafeZones().
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root{
+  --zone-top-max:34vh;
+  --zone-q-max:46vh;
+  --zone-pad:clamp(10px,1.6vw,20px);
+}
+
+#screen-game{max-width:none;margin:0;padding:0;min-height:0}
+#screen-game.active{display:block}
+.screen-stage{position:fixed;inset:0;z-index:5;overflow:hidden}
+
+.stage{position:absolute;inset:0;overflow:hidden;background:var(--board)}
+#game-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;
+  background:linear-gradient(180deg,#CFE0EA 0%,#E6DCC6 100%)}
+
+/* A soft vertical scrim so white UI text stays legible over any painting,
+   without washing out the middle band where the hero lives. */
+.stage-scrim{position:absolute;inset:0;pointer-events:none;z-index:1;
   background:
-    radial-gradient(120% 140% at 12% 0%, rgba(255,255,255,.75) 0%, rgba(255,255,255,0) 55%),
-    linear-gradient(135deg,#fdf1dc 0%,#f8e5c6 48%,#fdf2df 100%);
-  border:2px solid #e2c49a;border-radius:8px 22px 10px 20px;padding:12px 22px;
-  box-shadow:0 2px 0 rgba(160,122,74,.18), 0 10px 26px rgba(122,96,134,.16),
-             inset 0 0 40px rgba(196,154,108,.18)}
-.quest-trail::after{content:'';position:absolute;inset:5px;border-radius:6px 18px 8px 16px;
-  border:1px dashed rgba(160,122,74,.4);pointer-events:none}
-.trail-head{min-width:170px;max-width:46%}
-.trail-eyebrow{display:block;font-size:11px;font-weight:800;letter-spacing:.14em;
-  text-transform:uppercase;color:var(--ink-soft)}
-.trail-goal{font-size:clamp(16px,2.1vw,21px);font-weight:800;line-height:1.2;color:var(--ink)}
-.trail-map{flex:1;min-width:210px}
+    linear-gradient(180deg, rgba(38,30,22,.46) 0%, rgba(38,30,22,.10) 26%,
+      rgba(38,30,22,0) 42%, rgba(38,30,22,0) 54%,
+      rgba(38,30,22,.16) 70%, rgba(38,30,22,.50) 100%)}
 
-.trail-track{position:relative;height:42px}
-.trail-track::before{content:'';position:absolute;left:0;right:0;top:50%;height:6px;
+.zone{position:absolute;left:0;right:0;z-index:3;pointer-events:none;
+  padding:var(--zone-pad);display:flex;flex-direction:column;gap:8px}
+.zone > *{pointer-events:auto}
+.zone-top{top:0;max-height:var(--zone-top-max)}
+.zone-question{bottom:0;max-height:var(--zone-q-max);justify-content:flex-end}
+
+/* ── HUD ─────────────────────────────────────────────────────────── */
+.hud{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hud-stats{display:flex;gap:7px;flex:1;flex-wrap:wrap}
+.chip{background:rgba(255,248,238,.92);border-radius:999px;padding:7px 14px;font-size:14px;
+  font-weight:700;box-shadow:0 2px 0 rgba(90,62,38,.22)}
+.chip b{color:var(--clay)}
+
+/* ── the journey trail ───────────────────────────────────────────── */
+.quest-trail{display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:relative;
+  background:linear-gradient(135deg,rgba(255,248,238,.95) 0%,rgba(243,227,202,.95) 100%);
+  border:2px solid var(--line);border-radius:8px 18px 10px 16px;padding:9px 18px;
+  box-shadow:0 2px 0 rgba(120,80,45,.20), 0 8px 20px rgba(45,34,24,.24)}
+.trail-head{min-width:160px;max-width:46%}
+.trail-eyebrow{display:block;font-size:10px;font-weight:800;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-soft)}
+.trail-goal{font-size:clamp(14px,1.7vw,18px);font-weight:800;line-height:1.2;color:var(--ink)}
+.trail-map{flex:1;min-width:190px}
+.trail-track{position:relative;height:34px}
+.trail-track::before{content:'';position:absolute;left:0;right:0;top:50%;height:5px;
   transform:translateY(-50%);border-radius:999px;
-  background:repeating-linear-gradient(90deg,rgba(160,122,74,.42) 0 14px,transparent 14px 26px)}
-.trail-done{position:absolute;left:0;top:50%;width:0%;height:8px;transform:translateY(-50%);
-  border-radius:999px;background:linear-gradient(90deg,var(--mint-deep),var(--lav-deep));
-  box-shadow:0 0 12px rgba(169,140,255,.45);
+  background:repeating-linear-gradient(90deg,rgba(140,100,60,.42) 0 12px,transparent 12px 22px)}
+.trail-done{position:absolute;left:0;top:50%;width:0%;height:7px;transform:translateY(-50%);
+  border-radius:999px;background:linear-gradient(90deg,var(--moss),var(--teal));
+  box-shadow:0 0 10px rgba(46,126,123,.45);
   transition:width .85s cubic-bezier(.34,1.56,.64,1)}
 .trail-dots{position:absolute;inset:0;display:block}
-.trail-dot{position:absolute;top:50%;width:12px;height:12px;border-radius:50%;
-  transform:translate(-50%,-50%);background:#fffaf1;border:3px solid #c9a874;
+.trail-dot{position:absolute;top:50%;width:11px;height:11px;border-radius:50%;
+  transform:translate(-50%,-50%);background:var(--paper);border:3px solid var(--line);
   transition:background .4s, border-color .4s, transform .4s}
-.trail-dot.lit{background:var(--lemon-deep);border-color:#fff;transform:translate(-50%,-50%) scale(1.18)}
-.trail-walker{position:absolute;top:50%;left:0;font-size:27px;line-height:1;
-  transform:translate(-50%,-88%);filter:drop-shadow(0 3px 2px rgba(122,96,134,.3));
+.trail-dot.lit{background:var(--brand-sun);border-color:#fff;transform:translate(-50%,-50%) scale(1.18)}
+.trail-walker{position:absolute;top:50%;left:0;font-size:24px;line-height:1;
+  transform:translate(-50%,-88%);filter:drop-shadow(0 3px 2px rgba(60,44,30,.35));
   transition:left .85s cubic-bezier(.34,1.56,.64,1);animation:trailHop 1.5s ease-in-out infinite}
 @keyframes trailHop{0%,100%{margin-top:0}50%{margin-top:-5px}}
-.trail-pin{position:absolute;top:50%;right:0;font-size:27px;line-height:1;
-  transform:translate(0,-88%);filter:drop-shadow(0 3px 2px rgba(122,96,134,.3))}
-.trail-remaining{display:inline-block;margin-top:2px;font-size:13px;font-weight:700;
-  color:var(--ink-soft)}
-.quest-trail.arrived{border-color:var(--mint-deep);border-style:solid}
+.trail-pin{position:absolute;top:50%;right:0;font-size:24px;line-height:1;
+  transform:translate(0,-88%);filter:drop-shadow(0 3px 2px rgba(60,44,30,.35))}
+.trail-remaining{display:inline-block;margin-top:2px;font-size:12px;font-weight:700;color:var(--ink-soft)}
+.quest-trail.arrived{border-color:var(--moss)}
 .quest-trail.arrived .trail-pin{animation:trailHop .8s ease-in-out infinite}
 
-@media(max-width:700px){
-  .trail-head{max-width:100%;min-width:100%}
-  .trail-goal{font-size:17px}
-}
+/* ── ★ THE STORY LINE — top of the screen, and it STAYS ★ ─────────
+   The old narration card appeared over the question for ~3s and vanished.
+   Now the prose lives up here permanently and the question lives down
+   there permanently: two regions, both persistent, neither covering the
+   other. */
+.story-ribbon{display:flex;align-items:center;gap:13px;
+  background:linear-gradient(135deg,rgba(255,248,238,.96) 0%,rgba(248,228,200,.96) 100%);
+  border:2px solid var(--line);border-radius:18px;padding:10px 18px;
+  box-shadow:0 3px 0 rgba(120,80,45,.20), 0 10px 26px rgba(45,34,24,.26);
+  min-height:56px;max-height:19vh;overflow:auto}
+.story-avatar{font-size:clamp(24px,3vw,34px);flex-shrink:0;
+  filter:drop-shadow(0 2px 2px rgba(60,44,30,.3))}
+.story-lines{min-width:0}
+.story-eyebrow{display:block;font-size:10px;font-weight:800;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--clay)}
+#story-text{font-size:clamp(14px,1.75vw,19px);font-weight:600;line-height:1.4;color:var(--ink)}
+.story-ribbon.fresh{animation:ribbonIn .5s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes ribbonIn{from{opacity:.25;transform:translateY(-10px)}to{opacity:1;transform:none}}
 
-/* ═══════════════════════════════════════════════════════════════════
-   THE STORYBOOK
-   One bound page: an illustration plate on top, the words underneath.
-   Three regions stack in NORMAL FLOW and therefore cannot overlap:
-      .page-art  (holds the canvas → holds the character)
-      #story-slot (holds the narration)
-      #answer-tray (holds the answers)
-   Every absolutely-positioned overlay is pinned inside exactly one of
-   them, so "the narration covered two answers" cannot happen again.
-   ═══════════════════════════════════════════════════════════════════ */
-
-.storybook{
-  position:relative;
-  background:
-    radial-gradient(130% 100% at 50% 0%, rgba(255,255,255,.9) 0%, rgba(255,255,255,0) 60%),
-    linear-gradient(168deg,#fffaf1 0%,#fdf3e2 52%,#fbeedb 100%);
-  border-radius:10px 28px 28px 10px;
-  padding:clamp(14px,2.2vw,26px) clamp(16px,2.6vw,30px) clamp(14px,2vw,22px);
-  box-shadow:
-    0 2px 0 rgba(160,122,74,.22),
-    0 18px 44px rgba(122,96,134,.20),
-    inset 0 0 0 1px rgba(214,178,131,.45);
-}
-/* the bound spine down the left edge */
-.storybook::before{content:'';position:absolute;left:0;top:0;bottom:0;width:13px;
-  border-radius:10px 0 0 10px;pointer-events:none;
-  background:linear-gradient(90deg,#e6cba4 0%,#f4e2c6 42%,rgba(255,255,255,0) 100%);
-  box-shadow:inset 1px 0 0 rgba(160,122,74,.35)}
-/* the leaf beneath, so it reads as a stack of pages */
-.storybook::after{content:'';position:absolute;left:10px;right:-5px;bottom:-6px;height:12px;
-  border-radius:0 0 22px 10px;background:#f3e6d1;z-index:-1;
-  box-shadow:0 5px 12px rgba(122,96,134,.18)}
-
-/* ── book furniture: the running head ─────────────────────────────── */
-.chapter-row{display:flex;align-items:center;gap:14px;margin-bottom:clamp(10px,1.4vw,16px)}
-.chapter-chip{font-weight:800;font-size:clamp(12px,1.5vw,14px);letter-spacing:.16em;
-  text-transform:uppercase;color:#a07a4a;white-space:nowrap;
-  padding:0 2px;text-shadow:0 1px 0 rgba(255,255,255,.8)}
-.beat-bar{flex:1;height:5px;border-radius:999px;background:rgba(196,154,108,.28);overflow:hidden}
+/* ── running head ────────────────────────────────────────────────── */
+.chapter-row{display:flex;align-items:center;gap:12px}
+.chapter-chip{font-weight:800;font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--brand-sun);white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.55)}
+.beat-bar{flex:1;height:5px;border-radius:999px;background:rgba(255,248,238,.34);overflow:hidden}
 .beat-bar i{display:block;height:100%;width:0%;border-radius:999px;
-  background:linear-gradient(90deg,#e8b967,#c98f4e);
+  background:linear-gradient(90deg,var(--brand-sun),var(--brand-orange));
   transition:width .55s cubic-bezier(.34,1.56,.64,1)}
 
-/* ── the illustration plate ───────────────────────────────────────── */
-.page-art{
-  /* Cap the plate by HEIGHT so the answers below are always on screen.
-     Constraining the width is what constrains the 16:9 height. */
-  max-width:min(100%, calc(46vh * 16 / 9));
-  margin:0 auto clamp(14px,2vw,22px);
-}
-.art-frame{
-  position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;
-  border-radius:6px;background:var(--sky);
-  box-shadow:
-    0 0 0 1px rgba(160,122,74,.55),
-    0 0 0 7px #fffaf1,
-    0 0 0 8px rgba(196,154,108,.5),
-    0 14px 30px rgba(122,96,134,.22);
-  perspective:1400px;
-}
-#game-canvas{width:100%;height:100%;display:block;background:var(--sky)}
+/* ── ★ THE WALK BAND — keystrokes, no maths ★ ─────────────────────
+   This is the thing that turns a quiz into a journey: you get here by
+   moving, and the question only appears once you have. */
+.walk-band{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  background:linear-gradient(135deg,rgba(46,126,123,.94) 0%,rgba(35,96,94,.94) 100%);
+  border:3px solid var(--teal-soft);border-radius:20px;
+  padding:clamp(10px,1.5vw,16px) clamp(14px,2vw,24px);color:#FFF8EE;
+  box-shadow:0 5px 0 rgba(18,60,58,.55), 0 14px 30px rgba(45,34,24,.34)}
+.walk-main{flex:1;min-width:200px}
+.walk-title{font-size:clamp(18px,2.4vw,27px);font-weight:800;line-height:1.15}
+.walk-hint{font-size:clamp(12px,1.5vw,15px);opacity:.92;margin-top:3px}
+.walk-hint kbd{background:rgba(255,248,238,.92);color:var(--ink)}
+.walk-pips{display:flex;gap:8px;flex-wrap:wrap}
+.walk-pips i{display:block;width:clamp(13px,1.6vw,19px);height:clamp(13px,1.6vw,19px);
+  border-radius:50%;background:rgba(255,248,238,.28);border:2px solid rgba(255,248,238,.65);
+  transition:background .2s, transform .2s}
+.walk-pips i.done{background:var(--brand-sun);border-color:#fff;transform:scale(1.16)}
+.walk-pips i.now{box-shadow:0 0 0 4px rgba(244,211,114,.38);animation:pipNow 1s ease-in-out infinite}
+@keyframes pipNow{50%{transform:scale(1.2)}}
+.walk-skip{flex-shrink:0;opacity:.8}
 
-/* ── the page-turn ────────────────────────────────────────────────
-   Fires on a BEAT change (a new chapter = a new page). Mid-beat picture
-   swaps keep the canvas crossfade — this is only for story beats. */
+/* ── ★ THE QUESTION — the loudest thing on screen ★ ──────────────── */
+.question-box{
+  background:linear-gradient(168deg,rgba(255,248,238,.97) 0%,rgba(246,233,214,.97) 100%);
+  border:4px solid var(--brand-orange);border-radius:26px;
+  padding:clamp(12px,1.7vw,20px) clamp(16px,2.4vw,28px);
+  box-shadow:0 6px 0 rgba(150,90,50,.38), 0 18px 40px rgba(45,34,24,.40);
+  animation:qIn .42s cubic-bezier(.34,1.56,.64,1) both;
+  max-height:calc(var(--zone-q-max) - 40px);overflow:auto}
+@keyframes qIn{from{opacity:0;transform:translateY(22px) scale(.98)}to{opacity:1;transform:none}}
+.question-head{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.question-eyebrow{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--clay)}
+.question-text{font-size:clamp(23px,3.6vw,42px);font-weight:800;line-height:1.12;
+  color:var(--ink);letter-spacing:-.6px;margin:2px 0 clamp(8px,1.2vw,14px)}
+.problem-progress{background:var(--brand-sun);border-radius:999px;padding:6px 16px;
+  font-size:clamp(14px,1.8vw,18px);font-weight:800;white-space:nowrap;
+  box-shadow:0 3px 0 rgba(120,80,45,.26)}
+.problem-progress.full{background:var(--moss-soft);animation:pop .3s cubic-bezier(.34,1.56,.64,1)}
+.question-box.finale{border-color:var(--rose);
+  box-shadow:0 6px 0 rgba(140,50,70,.42), 0 18px 44px rgba(45,34,24,.45)}
+.question-box.finale .question-eyebrow{color:var(--rose)}
+
+/* ── answers: clickable cards ─────────────────────────────────────── */
+.answer-tray{display:flex;flex-wrap:wrap;justify-content:center;gap:clamp(8px,1.2vw,14px)}
+.answer-card{
+  --card-fill:#FFFBF2; --card-edge:var(--line); --card-ink:var(--ink);
+  position:relative;font-family:inherit;cursor:pointer;
+  min-width:clamp(74px,7.6vw,106px);min-height:clamp(70px,7.2vw,98px);padding:9px 11px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  border:3px solid var(--card-edge);border-radius:20px;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.95) 0%, rgba(255,255,255,0) 62%),
+    linear-gradient(165deg, var(--card-fill) 0%, color-mix(in srgb, var(--card-fill) 84%, #D9BF97) 100%);
+  box-shadow:0 5px 0 color-mix(in srgb, var(--card-edge) 64%, #6E4A28),
+             0 12px 22px rgba(45,34,24,.28),
+             inset 0 2px 0 rgba(255,255,255,.9);
+  transition:transform .14s cubic-bezier(.34,1.56,.64,1),
+             box-shadow .14s ease, filter .14s ease, border-color .14s ease;
+}
+@supports not (color: color-mix(in srgb, red 50%, blue)){
+  .answer-card{background:linear-gradient(165deg,var(--card-fill) 0%,#EFDDC0 100%);
+    box-shadow:0 4px 0 rgba(140,100,60,.6), 0 10px 20px rgba(45,34,24,.24)}
+}
+.answer-card:hover{transform:translateY(-5px) rotate(-.6deg);filter:brightness(1.03)}
+.answer-card:focus-visible{outline:4px solid var(--teal);outline-offset:3px}
+.answer-card:active{transform:translateY(3px) scale(.97)}
+.answer-card.picked{--card-fill:#FCEBBE; --card-edge:var(--amber);
+  transform:translateY(-3px) scale(1.04);animation:pop .26s cubic-bezier(.34,1.56,.64,1)}
+.answer-card.good{--card-fill:var(--moss-soft); --card-edge:var(--moss)}
+.answer-card.bad{--card-fill:var(--clay-soft); --card-edge:var(--clay)}
+.answer-card.wrongorder{animation:cardShake .42s ease}
+@keyframes cardShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px) rotate(-2deg)}
+  45%{transform:translateX(7px) rotate(2deg)}70%{transform:translateX(-4px)}}
+.answer-card.done{pointer-events:none;opacity:.5;filter:grayscale(.35)}
+.answer-tray.locked .answer-card{pointer-events:none}
+
+.card-num{font-size:clamp(26px,3.6vw,38px);font-weight:800;line-height:1;
+  color:var(--card-ink);letter-spacing:-.5px}
+.card-num.long{font-size:clamp(18px,2.2vw,24px)}
+.card-sub{font-size:12px;font-weight:700;color:var(--ink-faint);line-height:1}
+
+.card-pips{display:grid;gap:clamp(4px,.55vw,6px);justify-content:center;align-content:center;
+  grid-template-columns:repeat(var(--cols,3), auto)}
+.card-pips i{display:block;width:clamp(10px,1.4vw,15px);height:clamp(10px,1.4vw,15px);
+  border-radius:50%;
+  background:radial-gradient(circle at 34% 30%, #7E6A50 0%, #574633 60%, #3B2F22 100%);
+  box-shadow:0 1px 0 rgba(255,255,255,.7), inset 0 -1px 2px rgba(0,0,0,.25)}
+.answer-card.picked .card-pips i{
+  background:radial-gradient(circle at 34% 30%,#D9962F 0%,#A8661B 65%,#7D4A10 100%)}
+
+.card-zero{display:flex;align-items:center;gap:9px}
+.card-zero .dish{width:clamp(24px,2.8vw,32px);height:clamp(24px,2.8vw,32px);border-radius:50%;
+  border:3px dashed var(--line);background:rgba(255,255,255,.55);display:block;flex-shrink:0}
+.card-token{display:block;width:clamp(30px,3.6vw,42px);height:clamp(30px,3.6vw,42px)}
+.card-shape{display:block;width:clamp(40px,5vw,58px);height:clamp(40px,5vw,58px)}
+
+.card-order{position:absolute;top:-10px;right:-10px;min-width:26px;height:26px;padding:0 6px;
+  border-radius:999px;background:var(--teal);color:#fff;border:3px solid var(--paper);
+  font-size:13px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;
+  box-shadow:0 3px 8px rgba(45,34,24,.34);animation:pop .22s cubic-bezier(.34,1.56,.64,1)}
+.answer-card.good .card-order{background:var(--moss)}
+
+.answer-tray.dense{gap:clamp(6px,.9vw,10px)}
+.answer-tray.dense .answer-card{min-width:clamp(56px,5vw,72px);min-height:clamp(56px,5vw,72px);
+  padding:7px;border-radius:16px}
+.answer-tray.dense .card-num{font-size:clamp(18px,2.2vw,25px)}
+.answer-tray.dense .card-token{width:clamp(24px,2.4vw,30px);height:clamp(24px,2.4vw,30px)}
+.answer-tray.dense .card-pips i{width:clamp(7px,.9vw,11px);height:clamp(7px,.9vw,11px)}
+
+/* ── ★ FREE RESPONSE — typed answers ★ ────────────────────────────
+   Short numeric answers only, big target, Enter submits. Never shown to
+   ages 4-6 (the backend simply never generates one for that band). */
+.typein{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}
+.typein-input{font-family:inherit;font-weight:800;font-size:clamp(28px,4vw,44px);
+  text-align:center;color:var(--ink);width:clamp(150px,26vw,250px);
+  padding:6px 14px;border-radius:18px;border:4px solid var(--teal);background:#fff;outline:none;
+  box-shadow:inset 0 3px 8px rgba(90,62,38,.14)}
+.typein-input::placeholder{color:#C9B89F}
+.typein-input:focus{border-color:var(--amber);box-shadow:0 0 0 5px rgba(224,145,58,.28)}
+.typein-input.wrong{border-color:var(--clay);animation:cardShake .42s ease}
+.typein-input.right{border-color:var(--moss);background:var(--moss-soft)}
+.typein-unit{font-size:clamp(18px,2.4vw,26px);font-weight:800;color:var(--ink-soft)}
+.typein-go{padding:12px 26px;font-size:24px}
+
+/* ── the foot of the question box ────────────────────────────────── */
+.q-foot{text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;
+  margin-top:clamp(6px,1vw,10px)}
+.controls-hint{font-size:13px;color:var(--ink-soft)}
+kbd{background:var(--paper);border-radius:6px;padding:2px 7px;font-family:inherit;
+  font-size:12px;box-shadow:0 2px 0 rgba(120,80,45,.35);margin:0 2px;color:var(--ink)}
+
+.lock-btn{font-family:inherit;font-weight:800;font-size:clamp(15px,1.9vw,18px);color:var(--ink);
+  cursor:pointer;border:3px solid var(--moss);border-radius:999px;padding:9px 24px;
+  background:linear-gradient(165deg,#E4F1DC 0%,#C4E2BA 100%);
+  box-shadow:0 4px 0 rgba(72,120,70,.55), 0 8px 16px rgba(45,34,24,.2);
+  opacity:.66;transition:transform .14s, box-shadow .14s, opacity .2s}
+.lock-btn:hover{transform:translateY(-2px);opacity:1}
+.lock-btn:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(72,120,70,.55)}
+.lock-btn.pulse{opacity:1;animation:spacePulse 1s ease-in-out infinite}
+@keyframes spacePulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06);filter:brightness(1.05)}}
+
+.selected-row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;min-height:4px}
+.sel-pill{background:var(--moss-soft);border-radius:999px;padding:6px 14px;font-weight:700;
+  font-size:14px;box-shadow:0 3px 0 rgba(90,62,38,.18);
+  animation:pop .25s cubic-bezier(.34,1.56,.64,1);display:inline-flex;align-items:center;gap:7px}
+.sel-pill .ord{background:var(--teal);color:#fff;border-radius:50%;width:20px;height:20px;
+  display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+@keyframes pop{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* ── celebration overlay — lives in the middle band, clear of both zones ── */
+.toast{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(.85);
+  background:var(--paper);border:3px solid var(--line);border-radius:22px;padding:18px 32px;
+  text-align:center;font-size:clamp(17px,2.4vw,24px);font-weight:800;box-shadow:var(--shadow);
+  opacity:0;transition:all .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;
+  max-width:70%;z-index:4}
+.toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+.toast.good{background:var(--moss-soft);border-color:var(--moss)}
+.toast.bad{background:var(--clay-soft);border-color:var(--clay)}
+.toast small{display:block;font-size:14px;font-weight:500;color:var(--ink-soft);margin-top:7px}
+
+#btn-mute.off{background:#EADFCE;color:var(--ink-soft);opacity:.75}
+
+/* ── the page turn — still here, now across the whole stage ───────── */
 .page-turn{position:absolute;inset:0;pointer-events:none;overflow:hidden;
-  perspective:1500px;z-index:4}
+  perspective:1800px;z-index:2}
 .page-turn .sheet{
   position:absolute;inset:0;display:block;transform-origin:left center;
   transform:rotateY(0deg);opacity:0;backface-visibility:hidden;
-  background:
-    linear-gradient(100deg, rgba(255,255,255,.05) 0%, #fffaf1 12%, #f7ead6 62%, #e9d8bd 100%);
-  box-shadow:14px 0 34px rgba(88,62,40,.35);
-  border-left:2px solid rgba(160,122,74,.5);
-}
+  background:linear-gradient(100deg, rgba(255,255,255,.05) 0%, #FFF8EE 12%,
+    #F2E2C8 62%, #E2CDA8 100%);
+  box-shadow:14px 0 40px rgba(60,40,24,.4);
+  border-left:2px solid rgba(140,100,60,.5)}
 .page-turn.turn .sheet{animation:pageTurn .78s cubic-bezier(.45,.02,.35,1) both}
 @keyframes pageTurn{
   0%   {transform:rotateY(0deg)    translateZ(0); opacity:0}
@@ -292,224 +501,28 @@ textarea::placeholder{color:#c3b4c9;font-weight:500;opacity:1}
   70%  {opacity:1}
   100% {transform:rotateY(-168deg) translateZ(0); opacity:0}
 }
-/* the words settle a beat behind the picture */
-.storybook.page-changing .page-text{animation:pageSettle .8s ease both}
+.stage.page-changing .zone-question{animation:pageSettle .8s ease both}
 @keyframes pageSettle{
   0%{opacity:0;transform:translateX(26px)}
-  38%{opacity:0;transform:translateX(18px)}
+  38%{opacity:0;transform:translateX(16px)}
   100%{opacity:1;transform:none}
 }
 
-/* ── the lower page ───────────────────────────────────────────────── */
-.page-text{position:relative}
-
-/* ── the prose slot. #narration-card is pinned to THIS box only. ──── */
-.story-slot{position:relative;min-height:clamp(62px,8vh,94px);
-  margin-bottom:clamp(10px,1.6vw,16px)}
-.story-bar{display:flex;align-items:center;gap:14px;height:100%;
-  background:linear-gradient(135deg,#fff8e6 0%,#fdefd2 100%);
-  border:2px solid rgba(214,178,131,.55);
-  border-radius:18px;padding:12px 20px;
-  box-shadow:inset 0 2px 0 rgba(255,255,255,.8), 0 3px 10px rgba(160,122,74,.10)}
-.story-avatar{font-size:clamp(26px,3.4vw,36px);flex-shrink:0;
-  filter:drop-shadow(0 2px 2px rgba(122,96,134,.25))}
-#story-text{font-size:clamp(15px,1.9vw,18px);font-weight:500;line-height:1.45;color:#7a6350}
-
-/* the narration fills its slot exactly — it can reach nothing else */
-.narration-card{position:absolute;inset:0;z-index:2;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
-  background:linear-gradient(135deg,#fffdf7 0%,#fdf3e0 100%);
-  border:2px solid var(--lav-deep);border-radius:18px;padding:10px 24px;
-  text-align:center;overflow:auto;
-  box-shadow:0 4px 16px rgba(122,96,134,.22);
-  opacity:0;transform:translateY(8px);
-  transition:opacity .38s ease, transform .38s cubic-bezier(.34,1.56,.64,1);
-  pointer-events:none}
-.narration-card.show{opacity:1;transform:none}
-.narration-badge{display:inline-block;background:var(--lav);border-radius:999px;padding:2px 13px;
-  font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;flex-shrink:0}
-#narration-text{font-size:clamp(15px,2vw,20px);font-weight:700;line-height:1.35}
-
-/* ── ★ the problem — the single most important thing on screen ★ ──── */
-.problem-banner{display:flex;align-items:center;gap:18px;flex-wrap:wrap;
-  background:linear-gradient(135deg,#ffffff 0%,#eaf6ff 100%);
-  border:3px solid var(--sky-deep);border-radius:20px;
-  padding:clamp(11px,1.6vw,17px) clamp(16px,2.4vw,26px);
-  margin-bottom:clamp(10px,1.4vw,15px);
-  box-shadow:0 4px 0 rgba(111,192,255,.32), 0 10px 26px rgba(122,96,134,.14)}
-.problem-main{flex:1;min-width:230px}
-.problem-eyebrow{display:block;font-size:12px;font-weight:700;letter-spacing:.14em;
-  text-transform:uppercase;color:var(--ink-soft);margin-bottom:2px}
-.problem-text{font-size:clamp(22px,3.2vw,34px);font-weight:800;line-height:1.14;
-  color:var(--ink);letter-spacing:-.5px}
-.problem-side{display:flex;flex-direction:column;align-items:flex-end;gap:9px}
-.problem-progress{background:var(--lemon);border-radius:999px;padding:9px 20px;
-  font-size:clamp(16px,2.2vw,21px);font-weight:800;white-space:nowrap;
-  box-shadow:0 4px 0 rgba(122,96,134,.18)}
-.problem-progress.full{background:var(--mint);animation:pop .3s cubic-bezier(.34,1.56,.64,1)}
-
-/* ═══════════════ ★ THE ANSWERS — clickable storybook cards ★ ═══════
-   Designed UI, not blobs painted onto somebody's watercolour. Cream
-   parchment, warm rounded borders, a real press, and numerals big
-   enough to read across a kitchen table. */
-.answer-tray{display:flex;flex-wrap:wrap;justify-content:center;
-  gap:clamp(9px,1.3vw,15px);margin-bottom:clamp(8px,1.1vw,13px)}
-
-.answer-card{
-  --card-fill:#fffdf7; --card-edge:#d2a970; --card-ink:#463749;
-  position:relative;font-family:inherit;cursor:pointer;
-  min-width:clamp(80px,8.2vw,112px);min-height:clamp(78px,8vw,106px);
-  padding:10px 12px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
-  border:3px solid var(--card-edge);border-radius:22px;
-  background:
-    radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.95) 0%, rgba(255,255,255,0) 62%),
-    linear-gradient(165deg, var(--card-fill) 0%, color-mix(in srgb, var(--card-fill) 82%, #e8d4b4) 100%);
-  box-shadow:0 5px 0 color-mix(in srgb, var(--card-edge) 62%, #7a5a34),
-             0 12px 24px rgba(122,96,134,.22),
-             inset 0 2px 0 rgba(255,255,255,.9);
-  transition:transform .14s cubic-bezier(.34,1.56,.64,1),
-             box-shadow .14s ease, filter .14s ease, border-color .14s ease;
+/* ── short viewports: give the question the room, shrink the chrome ── */
+@media(max-height:620px){
+  :root{--zone-top-max:30vh; --zone-q-max:52vh}
+  .quest-trail{display:none}
+  .story-ribbon{min-height:44px;padding:7px 14px}
+  #story-text{font-size:14px}
 }
-/* color-mix is widely supported now, but never let a fallback look broken */
-@supports not (color: color-mix(in srgb, red 50%, blue)){
-  .answer-card{background:linear-gradient(165deg,var(--card-fill) 0%,#f3e3c9 100%);
-    box-shadow:0 4px 0 rgba(160,122,74,.55), 0 10px 22px rgba(122,96,134,.18)}
-}
-.answer-card:hover{transform:translateY(-5px) rotate(-.6deg);filter:brightness(1.03);
-  box-shadow:0 8px 0 color-mix(in srgb, var(--card-edge) 70%, #8a6a44),
-             0 16px 30px rgba(122,96,134,.24),
-             inset 0 2px 0 rgba(255,255,255,.85)}
-.answer-card:focus-visible{outline:4px solid var(--lav-deep);outline-offset:3px}
-.answer-card:active{transform:translateY(3px) scale(.97);
-  box-shadow:0 1px 0 color-mix(in srgb, var(--card-edge) 70%, #8a6a44),
-             0 4px 12px rgba(122,96,134,.2)}
-
-.answer-card.picked{--card-fill:#fff3c9; --card-edge:#f0b93f;
-  transform:translateY(-3px) scale(1.04);animation:pop .26s cubic-bezier(.34,1.56,.64,1)}
-.answer-card.good{--card-fill:#c8f4e0; --card-edge:#3aa580}
-.answer-card.bad{--card-fill:#ffdcc9; --card-edge:#ff9a6c}
-.answer-card.bad.picked{filter:saturate(1.05)}
-.answer-card.wrongorder{animation:cardShake .42s ease}
-@keyframes cardShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px) rotate(-2deg)}
-  45%{transform:translateX(7px) rotate(2deg)}70%{transform:translateX(-4px)}}
-.answer-card.done{pointer-events:none;opacity:.55;filter:grayscale(.3)}
-.answer-tray.locked .answer-card{pointer-events:none}
-
-.card-num{font-size:clamp(28px,4vw,42px);font-weight:800;line-height:1;
-  color:var(--card-ink);letter-spacing:-.5px}
-.card-num.long{font-size:clamp(19px,2.4vw,26px)}
-.card-sub{font-size:13px;font-weight:700;color:#a08a72;line-height:1}
-
-/* pips — real countable dots, not a texture */
-.card-pips{display:grid;gap:clamp(4px,.6vw,7px);justify-content:center;align-content:center;
-  grid-template-columns:repeat(var(--cols,3), auto)}
-.card-pips i{display:block;width:clamp(11px,1.5vw,16px);height:clamp(11px,1.5vw,16px);
-  border-radius:50%;
-  background:radial-gradient(circle at 34% 30%, #7f6ca0 0%, #55436b 60%, #3f3054 100%);
-  box-shadow:0 1px 0 rgba(255,255,255,.7), inset 0 -1px 2px rgba(0,0,0,.25)}
-.answer-card.picked .card-pips i{background:radial-gradient(circle at 34% 30%,#c98a2e 0%,#a2621a 65%,#7d4a10 100%)}
-
-/* an honest, intentional ZERO — an empty dish, never a lonely digit */
-.card-zero{display:flex;align-items:center;gap:9px}
-.card-zero .dish{width:clamp(26px,3vw,34px);height:clamp(26px,3vw,34px);border-radius:50%;
-  border:3px dashed #cbb79a;background:rgba(255,255,255,.55);display:block;flex-shrink:0}
-
-/* an unlabelled collectible: a little painted gem, never a blank disc */
-.card-token{display:block;width:clamp(34px,4vw,46px);height:clamp(34px,4vw,46px)}
-.card-shape{display:block;width:clamp(44px,5.5vw,62px);height:clamp(44px,5.5vw,62px)}
-
-/* order / selection badge */
-.card-order{position:absolute;top:-10px;right:-10px;min-width:28px;height:28px;padding:0 6px;
-  border-radius:999px;background:var(--lav-deep);color:#fff;border:3px solid #fffaf1;
-  font-size:14px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;
-  box-shadow:0 3px 8px rgba(122,96,134,.3);animation:pop .22s cubic-bezier(.34,1.56,.64,1)}
-.answer-card.good .card-order{background:#3aa580}
-
-/* dense trays (collect-count scatters 10-20 tokens) shrink gracefully */
-.answer-tray.dense{gap:clamp(7px,1vw,11px)}
-.answer-tray.dense .answer-card{min-width:clamp(62px,5.4vw,80px);min-height:clamp(62px,5.4vw,80px);
-  padding:8px;border-radius:18px}
-.answer-tray.dense .card-num{font-size:clamp(20px,2.4vw,27px)}
-.answer-tray.dense .card-token{width:clamp(26px,2.6vw,32px);height:clamp(26px,2.6vw,32px)}
-.answer-tray.dense .card-pips i{width:clamp(8px,1vw,12px);height:clamp(8px,1vw,12px)}
-
-/* ── the little celebration overlay (lives inside the art frame) ──── */
-.toast{position:absolute;left:50%;top:22%;transform:translate(-50%,-50%) scale(.85);
-  background:var(--cream);border-radius:24px;padding:20px 34px;text-align:center;
-  font-size:clamp(17px,2.4vw,24px);font-weight:700;box-shadow:var(--shadow);
-  opacity:0;transition:all .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;
-  max-width:82%;z-index:3}
-.toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
-.toast.good{background:var(--mint)}
-.toast.bad{background:var(--peach)}
-.toast small{display:block;font-size:15px;font-weight:500;color:var(--ink-soft);margin-top:8px}
-
-#btn-mute.off{background:#efe7f2;color:var(--ink-soft);opacity:.7}
-
-/* ── the foot of the page ─────────────────────────────────────────── */
-.game-foot{text-align:center;display:flex;flex-direction:column;align-items:center;gap:7px}
-.controls-hint{font-size:14px;color:#a08a72}
-kbd{background:#fffaf1;border-radius:7px;padding:3px 8px;font-family:inherit;
-  font-size:13px;box-shadow:0 2px 0 rgba(160,122,74,.35);margin:0 2px}
-
-.lock-btn{font-family:inherit;font-weight:800;font-size:clamp(15px,2vw,18px);color:var(--ink);
-  cursor:pointer;border:3px solid #49b795;border-radius:999px;padding:10px 26px;
-  background:linear-gradient(165deg,#d6f7e9 0%,#a9ecd2 100%);
-  box-shadow:0 4px 0 rgba(58,165,128,.55), 0 8px 18px rgba(122,96,134,.16);
-  opacity:.62;transition:transform .14s, box-shadow .14s, opacity .2s}
-.lock-btn:hover{transform:translateY(-2px);opacity:1}
-.lock-btn:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(58,165,128,.55)}
-.lock-btn.pulse{opacity:1;animation:spacePulse 1s ease-in-out infinite}
-@keyframes spacePulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07);filter:brightness(1.05)}}
-
-.selected-row{display:flex;gap:9px;justify-content:center;flex-wrap:wrap;min-height:6px}
-.sel-pill{background:var(--mint);border-radius:999px;padding:7px 16px;font-weight:700;
-  box-shadow:0 3px 0 rgba(122,96,134,.14);animation:pop .25s cubic-bezier(.34,1.56,.64,1);
-  display:inline-flex;align-items:center;gap:8px}
-.sel-pill .ord{background:var(--lav-deep);color:#fff;border-radius:50%;width:22px;height:22px;
-  display:inline-flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
-@keyframes pop{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}
-
-/* ── the open spread ──────────────────────────────────────────────
-   On anything laptop-sized the book opens properly: the plate on the
-   left leaf, the words on the right, a fold down the middle. Stacking
-   them is what pushed the answers below the fold of the SCREEN, which
-   is the one place a five-year-old will never look. */
-@media(min-width:1040px){
-  .storybook{
-    display:grid;
-    grid-template-columns:minmax(0,1.18fr) minmax(408px,.86fr);
-    column-gap:clamp(22px,2.8vw,40px);
-    align-items:start;
-    border-radius:16px;
-  }
-  .storybook::before{display:none}            /* the binding moves to the middle */
-  .chapter-row{grid-column:1/-1}
-  .page-art{margin:0;align-self:center;position:relative}
-  /* the centre fold */
-  .page-art::after{content:'';position:absolute;top:-6px;bottom:-6px;
-    right:calc(-1 * clamp(11px,1.4vw,20px));width:3px;pointer-events:none;
-    background:linear-gradient(90deg,rgba(160,122,74,0) 0%,rgba(160,122,74,.28) 45%,
-      rgba(255,255,255,.85) 55%,rgba(160,122,74,0) 100%)}
-  .page-text{display:flex;flex-direction:column}
-  .answer-tray{flex:1 1 auto;align-content:center}
-  .game-foot{margin-top:auto;padding-top:4px}
-  /* the right leaf is the tall one, so it sets the vertical budget */
-  .problem-text{font-size:clamp(20px,1.95vw,29px)}
-  .problem-banner{padding:11px 18px}
-  .story-slot{min-height:clamp(60px,7.4vh,86px)}
-}
-
 @media(max-width:700px){
-  .storybook{padding:14px 14px 16px;border-radius:8px 18px 18px 8px}
-  .page-art{max-width:100%}
-  .problem-banner{padding:12px 15px}
-  .problem-side{align-items:stretch;width:100%}
-  .problem-progress{text-align:center}
-  .answer-card{min-width:78px;min-height:78px;padding:9px}
+  .hud .wordmark-xs{display:none}
+  .trail-head{max-width:100%;min-width:100%}
+  .walk-skip{order:3}
+  .answer-card{min-width:66px;min-height:66px;padding:8px}
 }
 @media(prefers-reduced-motion:reduce){
-  .page-turn .sheet,.storybook.page-changing .page-text{animation:none !important}
+  .page-turn .sheet,.stage.page-changing .zone-question,
+  .story-ribbon.fresh,.question-box{animation:none !important}
   .answer-card{transition:none}
 }

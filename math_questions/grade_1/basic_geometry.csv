@@ -1,0 +1,31 @@
+question,answer,difficulty_level,difficulty_label
+How many sides does a triangle have?,3,1,easy
+How many sides does a square have?,4,1,easy
+How many corners does a rectangle have?,4,1,easy
+How many sides does a circle have?,0,1,easy
+How many corners does a square have?,4,1,easy
+How many corners does a triangle have?,3,1,easy
+How many sides does a rectangle have?,4,1,easy
+Which shape is round with no corners: a circle or a square?,circle,1,easy
+Which shape has 3 sides: a triangle or a rectangle?,triangle,1,easy
+Which shape has 4 equal sides: a square or a triangle?,square,1,easy
+How many sides does a pentagon have?,5,2,medium
+How many sides does a hexagon have?,6,2,medium
+How many sides does an octagon have?,8,2,medium
+How many corners does a pentagon have?,5,2,medium
+How many corners does a hexagon have?,6,2,medium
+How many corners does an octagon have?,8,2,medium
+How many faces does a cube have?,6,2,medium
+How many corners does a cube have?,8,2,medium
+A stop sign is an octagon. How many sides does it have?,8,2,medium
+How many sides do a triangle and a square have altogether?,7,2,medium
+How many sides do 2 triangles have altogether?,6,3,hard
+How many corners do 2 squares have altogether?,8,3,hard
+How many sides do 3 triangles have altogether?,9,3,hard
+How many sides do 2 rectangles have altogether?,8,3,hard
+How many corners do 3 triangles have altogether?,9,3,hard
+How many sides do a pentagon and a hexagon have altogether?,11,3,hard
+How many sides do 2 pentagons have altogether?,10,3,hard
+How many corners do a square and a triangle have altogether?,7,3,hard
+How many sides do 2 hexagons have altogether?,12,3,hard
+How many sides do a square and an octagon have altogether?,12,3,hard
