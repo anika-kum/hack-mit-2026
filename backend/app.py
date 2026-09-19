@@ -59,6 +59,7 @@ import base64
 import os
 import pathlib
 import random
+import re
 import threading
 import time
 import uuid
@@ -94,7 +95,13 @@ SESSIONS: dict[str, dict] = {}
 
 # Fields that must never reach the browser: they are, or reconstruct, the
 # answer key. Everything else in the challenge is renderable data.
-SECRET_FIELDS = ("explanation", "answer_order", "order_cyclic", "answer_value")
+#
+# `answer_text` is the written form of a fraction answer ("1 1/3"). It is as
+# much of a leak as answer_value is, so it is stripped here. `answer_form`
+# ("fraction") is NOT secret - it is a formatting hint so the type-in box can
+# tell the child to write a fraction, and it narrows nothing down.
+SECRET_FIELDS = ("explanation", "answer_order", "order_cyclic", "answer_value",
+                 "answer_text")
 # Per-stone fields that ARE safe to ship - they are what makes the puzzle
 # solvable by looking at it.
 STONE_VISUAL_FIELDS = ("group", "tint", "shape", "dots", "x_pct", "y_pct")
@@ -179,6 +186,15 @@ def health():
         # range falls back to the hard-coded one in math_engine, which is
         # exactly how the game shipped before the bank existed.
         "question_bank": question_bank.load().summary(),
+        # Which CONCEPTS the bank gated in for each cell, and the one cell
+        # where the gate had to be relaxed to keep a topic playable. Both are
+        # here so the compromise is visible rather than folklore.
+        "concepts": {
+            f"{t}/{b}": math_engine.concepts_for(t, b)
+            for t in math_engine.TOPICS
+            for b in math_engine.TOPIC_BANDS.get(t, [])
+        },
+        "relaxed_cells": [f"{t}/{b}" for t, b in math_engine.RELAXED_CELLS],
     }
 
 
@@ -501,18 +517,59 @@ def create_world(req: CreateWorldRequest):
 
 # ------------------------------------------------------------------ grading
 
+# Fraction and mixed-number forms, matched BEFORE any unit stripping. Order
+# matters: the unit stripper below removes spaces, which would silently turn
+# "1 1/3" into "11/3" - a plausible-looking wrong answer rather than a right
+# one. Anchored and digit-required, so "90 km/h" never matches either.
+_RE_TYPED_MIXED = re.compile(r"^=?\s*([+-]?\d+)\s+(\d+)\s*/\s*(\d+)\s*$")
+_RE_TYPED_FRACTION = re.compile(r"^=?\s*([+-]?\d+)\s*/\s*(\d+)\s*$")
+
+
+def _parse_typed_fraction(text: str) -> float | None:
+    """'3/4' -> 0.75, '1 1/3' -> 1.333..., '-1 1/2' -> -1.5. Else None."""
+    m = _RE_TYPED_MIXED.match(text)
+    if m:
+        try:
+            whole, num, den = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        except ValueError:                       # pragma: no cover
+            return None
+        if den == 0:
+            return None
+        frac = num / den
+        # "-1 1/2" means -(1 + 1/2), not -1 + 1/2.
+        return (whole - frac) if (whole < 0 or m.group(1).startswith("-")) else (whole + frac)
+    m = _RE_TYPED_FRACTION.match(text)
+    if m:
+        try:
+            num, den = int(m.group(1)), int(m.group(2))
+        except ValueError:                       # pragma: no cover
+            return None
+        return None if den == 0 else num / den
+    return None
+
+
 def parse_typed_number(raw) -> float | None:
     """What a child typed, as a number - or None if it isn't one.
 
     Deliberately forgiving about the things a six-year-old's hands do
     (spaces, a stray comma, a trailing unit, a leading '='), and deliberately
     strict about everything else: a blank box must never grade as correct.
+
+    Fractions and mixed numbers are accepted in either written form, because
+    the fraction archetypes have answers like 4/3 and a child taught to write
+    that as "1 1/3" is not wrong. Both parse to the same float and the grader
+    compares numerically, so neither form is privileged.
     """
     if raw is None:
         return None
     text = str(raw).strip().lower()
     if not text:
         return None
+
+    fraction = _parse_typed_fraction(text)
+    if fraction is not None:
+        return fraction
+
     for junk in ("=", "cents", "cent", "km/h", "km", "cm", "m", "l", "$", "c", ","):
         text = text.replace(junk, " ")
     text = text.replace(" ", "")
@@ -909,6 +966,9 @@ def answer(req: AnswerRequest):
         "no_fail": no_fail,
         "correct_stone_ids": sorted(reveal_ids),
         "answer_value": challenge.get("answer_value"),
+        # The written form, for fraction answers - revealed only AFTER
+        # the child has answered, exactly like answer_value.
+        "answer_text": challenge.get("answer_text"),
         "typed": req.typed,
         "answer_order": challenge.get("answer_order"),
         "explanation": challenge.get("explanation", ""),

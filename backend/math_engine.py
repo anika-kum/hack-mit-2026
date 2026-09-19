@@ -3,39 +3,53 @@ do-IT-oodle - deterministic math challenge generator.
 
 Design rules (these are the whole point of this file):
 
-1. THE MATH ARISES FROM THE FICTION.
-   Every number in `prompt` refers to objects the child can SEE in the scene.
-   If the prompt says "8 stepping stones", the challenge emits 8 stone props.
-   Props are the fiction; stones are the things the child walks onto.
+1. THE QUESTION IS A REAL MATH QUESTION.
+   *** 2026-09-19b REWRITE. *** The previous generation dressed arithmetic up
+   as spatial errands - "fence a 2 by 5 plot, one post per step", "take one
+   marker stone per mile", "which door has exactly 3 sides". Playtesters were
+   blunt: the questions were far too easy and the mechanics were busywork, not
+   maths. Every one of those archetypes is now in DELETED_ARCHETYPES.
+
+   What replaced them: straight questions in the register of the team's own
+   CSV bank ("Two angles of a triangle are 62 and 37 degrees. Third?",
+   "2/3 divided by 1/3 = ? Simplify.", "A train covers 300 km in 4 hours.
+   Its speed?"). Two presentations only - MULTIPLE CHOICE and FREE RESPONSE.
+   The fun lives in the story and in the obstacle the answer unlocks, not in
+   contorting the arithmetic into a walking puzzle.
+
+   ONE exception survives, deliberately: `frac_sandbars`, where "step on n of
+   these d equal sandbars" genuinely IS what n/d means. It is restricted to
+   ages 7-8, the youngest band that meets fractions at all.
 
 2. `prompt` IS THE QUESTION.
-   Short (<= 12 words), concrete, with units. It is rendered in an
-   always-visible banner. `narrative` is flavour and may be replaced by AI.
+   Short (<= 12 words), concrete, WITH UNITS AND CORRECT PLURALS. It is
+   rendered in an always-visible banner. `narrative` is flavour and may be
+   replaced by AI.
 
-3. EVERY ARCHETYPE MUST REQUIRE ARITHMETIC.
-   Six primitives - PICK-ONE, PICK-A-SET, COUNT-OUT, ORDERED-WALK,
-   GROUP-SELECT and TYPE-IT (free response) - mapped onto named archetypes,
-   at least two per topic x band and at least one that is not PICK-ONE.
+3. THE BANK GATES BOTH MAGNITUDE AND KIND.
+   `question_bank.py` mines the CSVs for (a) operand magnitudes per
+   (topic, band, level) and (b) which CONCEPT each row is, and which school
+   grades that concept lives in. CONCEPT_GRADES below mirrors (b) so the
+   offline game gates identically; test_engine asserts the two agree.
 
-   *** 2026-09-19 CULL. *** Six archetypes were deleted because they were
-   "touch and choose": the child walked onto or tapped visible things and
-   never computed anything. They are listed in DELETED_ARCHETYPES below and
-   must not come back. The replacement pattern is COUNT-OUT: the scene holds
-   MORE collectables than the answer, so the child has to work out how many
-   to take. Counting out 3 x 4 = 12 seeds from a patch of 16 IS
-   multiplication; walking over a 3 x 4 grid of exactly 12 seeds is not.
+   Consequence: shape identification is a grade-1 concept and is unavailable
+   to ages 9-10. Triangle angle sum is a grade 4-5 concept and is unavailable
+   to ages 4-6. Nobody has to remember to enforce that by hand.
 
-4. NOTHING HERE CALLS AN LLM. Correctness is guaranteed and generation is
+4. DIFFICULTY FLOORS ARE BAND-RELATIVE.
+   One 13-rung ladder spans the whole game. Band k1 starts at rung 1, band 23
+   at rung 5, band 45 at rung 9 - so a band's level 5 and the next band's
+   level 1 sit on the SAME rung. An older child's easiest question is where a
+   younger child's hardest was. See `difficulty_rung` / `_rs`.
+
+5. NOTHING HERE CALLS AN LLM. Correctness is guaranteed and generation is
    instant. prompts.py may *re-narrate* a challenge, never re-compute it.
-
-5. NUMBER RANGES MAY BE CALIBRATED from the team's CSV question bank (see
-   question_bank.py). That only ever nudges the magnitude of the operands -
-   the arithmetic, the answer key and the fiction stay right here.
 """
 
 import math
 import random
 import threading
+from fractions import Fraction
 
 try:                                   # the bank is optional by design
     import question_bank
@@ -62,9 +76,6 @@ BANDS = {
 }
 
 TOPIC_BANDS = {
-    # The team's question bank ships grade-1 counting/comparing and grade-2
-    # time/money. Both are real curriculum topics for the younger bands, so
-    # they are first-class here rather than being dropped on the floor.
     "counting_and_comparing": ["k1", "23"],
     "time_and_money": ["k1", "23"],
     "addition": ["k1", "23", "45"],
@@ -114,6 +125,9 @@ PROP_KINDS = {
     "stone", "plank", "rope", "lantern", "basket", "berry", "gem", "sack",
     "signpost", "gate", "pie_gate", "raft", "clock", "fence_post", "tile",
     "droplet", "tick", "npc", "tree", "bridge",
+    # 2026-09-19b: a drawn polygon, so a pre-reader can SEE the shape the
+    # question is about instead of having to decode the word "hexagon".
+    "shape",
 }
 
 # Every archetype name this module can emit, grouped by topic. story_engine
@@ -139,10 +153,11 @@ def pick_setting(objects: list[str]) -> str:
     return "meadow"
 
 
-# Deleted 2026-09-19 after playtest feedback ("not actually math"). Kept as a
-# name list so nothing - registry, story engine, tests - can quietly resurrect
-# one, and so the reason survives the next person to read this file.
+# Deleted after playtest feedback. Kept as a name list so nothing - registry,
+# story engine, tests - can quietly resurrect one, and so the reason survives
+# the next person to read this file.
 DELETED_ARCHETYPES = {
+    # --- 2026-09-19a: "not actually math" ---------------------------------
     "berry_harvest":          "collect-N over two berry patches; tapping every "
                               "visible berry, no addition performed",
     "pick_around_mushrooms":  "tap the berries, skip the mushrooms; visual "
@@ -154,18 +169,86 @@ DELETED_ARCHETYPES = {
                               "only ever appeared in the explanation",
     "mile_markers":           "touch every mile stone that was drawn for you; "
                               "distance = speed x time was never computed",
+
+    # --- 2026-09-19b: "the questions are way too easy", "just math" --------
+    # The COUNT-OUT replacements from the 'a' cull turned out to be the same
+    # disease: the answer had to be small enough to count out by hand, which
+    # capped every one of them at a number a five-year-old could reach. They
+    # are gone, and with them the rest of the spatial gimmicks.
+    "shape_door":             "pick the door with N sides; a 10-year-old "
+                              "counting to 3, and the fiction added nothing",
+    "fence_posts":            "'one post per step' round a 2 by 5 plot; the "
+                              "counting cap made every perimeter tiny",
+    "orchard_count":          "take r x c seeds from a pile; capped at 14, so "
+                              "the hardest product was 3 x 4",
+    "mile_count":             "'take one stone per mile'; same cap, and the "
+                              "walking was the whole interaction",
+    "acorn_count":            "take a then b more acorns; addition capped at "
+                              "what a child will patiently tap",
+    "stones_left":            "step on the stones the tide left; subtraction "
+                              "capped the same way",
+    "count_the_lanterns":     "one stone per lantern; one-to-one counting "
+                              "dressed as a quest, and never harder than 14",
+    "market_stall":           "count out pennies for n buns; price capped at 4",
+    "fraction_of_berries":    "tap n/d of a visible pile; the pile size gave "
+                              "the answer away once you counted it",
+    "catch_the_raft":         "stand where the raft lands; also the source of "
+                              "'Raft drifts 1 posts a beat'",
+    "countdown_path":         "ordered walk over scattered stones; route "
+                              "planning, not arithmetic",
+    "number_line_leap":       "leap to 0.35 on a drawn number line; reading a "
+                              "position off an axis we had already drawn",
+    "toll_gate":              "pick gems summing to the toll; a subset-sum "
+                              "puzzle a child solved by trial and error",
+    "rain_gauge":             "same as toll_gate with decimal droplets",
+    "balance_scales":         "same as toll_gate with weights",
 }
 
 
-# --------------------------------------------------------------- primitives
+# ====================================================== THE DIFFICULTY LADDER
+#
+# One ladder, thirteen rungs, spanning ages 4 to 10. A band's level 5 and the
+# next band's level 1 land on the SAME rung, which is the whole point:
+#
+#     k1  levels 1..5  ->  rungs 1  2  3  4  5
+#     23  levels 1..5  ->  rungs        5  6  7  8  9
+#     45  levels 1..5  ->  rungs              9 10 11 12 13
+#
+# Before this, level 1 generated identical numbers for a four-year-old and a
+# ten-year-old, which is how "Which door has exactly 3 sides?" ended up in
+# front of the 9-10 band.
 
-def _scale(level: int, lo: float, hi: float) -> int:
-    level = max(1, min(5, level))
-    return round(lo + (hi - lo) * (level - 1) / 4)
+BAND_RUNG = {"k1": 1, "23": 5, "45": 9}
+MAX_RUNG = 13
+
+
+def difficulty_rung(band: str, level: int) -> int:
+    """Where (band, level) sits on the global 1..13 ladder."""
+    return BAND_RUNG.get(band, BAND_RUNG["23"]) + _lvl(level) - 1
+
+
+def topic_rung_span(topic: str | None) -> tuple[int, int]:
+    """The rungs a topic actually uses, given which bands offer it.
+
+    Decimals only exist for ages 9-10, so its five levels must span its OWN
+    range (rungs 9-13) rather than being squeezed into the top third of a
+    ladder that starts at four-year-old addition. Without this, every
+    decimals level would generate near-identical numbers.
+    """
+    bands = TOPIC_BANDS.get(topic or "", None) or list(BAND_RUNG)
+    lo = min(BAND_RUNG.get(b, 5) for b in bands)
+    hi = max(BAND_RUNG.get(b, 5) for b in bands) + 4
+    return lo, max(lo + 1, hi)
 
 
 def _lvl(level: int) -> int:
     return max(1, min(5, int(level or 1)))
+
+
+def _scale(level: int, lo: float, hi: float) -> int:
+    """Linear level-only scale. Band-blind: prefer `_rs` in new code."""
+    level = _lvl(level)
+    return round(lo + (hi - lo) * (level - 1) / 4)
 
 
 # ------------------------------------------------------- CSV calibration
@@ -177,8 +260,8 @@ def _lvl(level: int) -> int:
 # because challenges are generated on FastAPI's request threads and two
 # children must never calibrate each other's numbers.
 #
-# When math_questions/ is absent - which is the normal case, and the one the
-# demo runs on - `_cal` is the exact identity function.
+# When math_questions/ is absent - a supported state - `_cal` is the exact
+# identity function and `_cal_value` returns its argument unchanged.
 
 _CTX = threading.local()
 
@@ -203,6 +286,60 @@ def _cal_scale(level: int, lo: float, hi: float) -> int:
     clo, chi = _cal(int(lo), int(hi))
     return _scale(level, clo, chi)
 
+
+def _cal_value(v: int) -> int:
+    """Nudge ONE generated magnitude toward the bank's observed operands.
+
+    Opens a window of (v/2, v*2) around the value, lets `scale_range` blend
+    that window with what the CSVs actually contain for this cell, then
+    clamps `v` into the result. With no bank the window comes back unchanged
+    and `v` is already inside it, so this is the exact identity - which is
+    what keeps the offline demo bit-for-bit what it would be without the
+    bank at all.
+    """
+    v = int(v)
+    if v < 2:
+        return max(1, v)
+    lo, hi = _cal(max(1, v // 2), max(2, v * 2))
+    return max(1, min(max(lo, hi), max(min(lo, hi), v)))
+
+
+def _span(hi, frac: float = 0.55, floor: int = 2) -> tuple[int, int]:
+    """A tight draw range just BELOW a ladder magnitude.
+
+    `rng.randint(2, hi)` was the bug behind half the "still too easy"
+    complaints: at level 5 it happily rolled a 2, so a ten-year-old's hardest
+    multiplication could come out as "2 x 2". Drawing from [0.55*hi, hi]
+    keeps some variety while guaranteeing the level actually moved.
+    """
+    hi = max(floor, int(hi))
+    lo = max(floor, int(round(hi * frac)))
+    return min(lo, hi), hi
+
+
+def _rs(band: str, level: int, lo: float, hi: float, cal: bool = True) -> int:
+    """A magnitude on the band-relative ladder, between `lo` and `hi`.
+
+    `lo` is what the EASIEST level of the easiest band that offers this topic
+    should see; `hi` is what the hardest level of the oldest band should see.
+    Interpolation is geometric, because arithmetic difficulty grows by orders
+    of magnitude (3 -> 30 -> 300), not by constant steps.
+
+    `cal=False` for STRUCTURAL numbers - denominators, how many parts, how
+    many hours. Those are not magnitudes and must not be dragged around by a
+    bank percentile mined from a different kind of operand.
+    """
+    lo = max(1.0, float(lo))
+    hi = max(lo + 1.0, float(hi))
+    r0, r1 = topic_rung_span(getattr(_CTX, "topic", None))
+    r = difficulty_rung(band, level)
+    t = (r - r0) / float(r1 - r0)
+    t = 0.0 if t < 0 else (1.0 if t > 1 else t)
+    v = int(round(lo * (hi / lo) ** t))
+    return _cal_value(v) if cal else max(1, v)
+
+
+# --------------------------------------------------------------- primitives
 
 def _stone(sid, label, value, correct, **extra) -> dict:
     s = {"id": sid, "label": "" if label is None else str(label),
@@ -237,7 +374,8 @@ def _cluster(kind, n, cx, cy, label="", scale=1.0, cols=5,
         in_row = min(cols, n - r * cols)
         x = cx + (c - (in_row - 1) / 2) * step_x
         y = cy + (r - (rows - 1) / 2) * step_y
-        out.append(_prop(kind, min(0.97, max(0.03, x)), min(0.95, max(0.08, y)), scale, label))
+        out.append(_prop(kind, min(0.97, max(0.03, x)),
+                         min(0.95, max(0.08, y)), scale, label))
     return out
 
 
@@ -271,7 +409,7 @@ def _distractors(rng, correct, count, spread, allow_negative=False, cap=None):
             vals.add(c)
     # last resort: walk outward so we always return `count` options
     step = 1
-    while len(vals) < count and step < 200:
+    while len(vals) < count and step < 400:
         for c in (correct + step, correct - step):
             if len(vals) < count and ok(c):
                 vals.add(c)
@@ -308,7 +446,7 @@ def _dots_max_for(band: str) -> int:
 
 def _choice_stones(rng, correct, spread, count=4, formatter=str,
                    band="23", dots_max=None, allow_negative=False):
-    """PICK-ONE: numbered stones, one of which is right.
+    """MULTIPLE CHOICE: numbered stones, one of which is right.
 
     For ages 4-6 (`dots_max` > 0) values are ALSO emitted as `dots` so a
     pre-reader can count pips instead of decoding a numeral.
@@ -322,6 +460,21 @@ def _choice_stones(rng, correct, spread, count=4, formatter=str,
     for i, v in enumerate(vals):
         dots = v if (dots_max and isinstance(v, int) and 0 <= v <= dots_max) else None
         stones.append(_stone(i, formatter(v), v, v == correct, dots=dots))
+    _lay_row(rng, stones)
+    return stones
+
+
+def _option_stones(rng, options):
+    """MULTIPLE CHOICE from an explicit option list.
+
+    `options` is [(label, value, is_correct, extra_fields_dict)] - used when
+    the answers are not plain integers (fractions, drawn shapes, pip piles).
+    """
+    opts = list(options)
+    rng.shuffle(opts)
+    stones = []
+    for i, (label, value, correct, extra) in enumerate(opts):
+        stones.append(_stone(i, label, value, correct, **(extra or {})))
     _lay_row(rng, stones)
     return stones
 
@@ -348,61 +501,26 @@ def _base(question_type, grade_mode, prompt, narrative, explanation,
     return ch
 
 
-# --------------------------------------------------------------- COUNT-OUT
-#
-# The replacement for the deleted collect-N archetypes. The scene holds MORE
-# collectables than the answer, and every one of them is collectable - so
-# there is nothing to spot, only something to work out. "Take 3 x 4 acorns"
-# from a patch of sixteen is multiplication; walking a 3 x 4 grid is not.
-
-# Counting out twenty things is tedious, not hard, and the answer tray has to
-# render one card per item. These caps keep both honest.
-_COUNT_OUT_ANSWER_CAP = {"k1": 8, "23": 12, "45": 14}
-_COUNT_OUT_TOTAL_CAP = {"k1": 12, "23": 16, "45": 18}
-
-
-def count_out_cap(band: str) -> int:
-    """The largest answer a COUNT-OUT archetype may ask a band to count."""
-    return _COUNT_OUT_ANSWER_CAP.get(band, 12)
-
-
-def _count_out_stones(rng, want, band, tint="sage"):
-    want = max(1, int(want))
-    spare = rng.randint(3, 5)
-    total = min(want + spare, _COUNT_OUT_TOTAL_CAP.get(band, 16))
-    total = max(total, want + 2)          # there must ALWAYS be spares to leave
-    stones = [_stone(i, "", "item", True, tint=tint) for i in range(total)]
-    cols = min(6, max(3, math.ceil(math.sqrt(total * 1.6))))
-    for i, s in enumerate(stones):
-        r, c = divmod(i, cols)
-        in_row = min(cols, total - r * cols)
-        s["x_pct"] = round(0.17 + 0.66 * (c / max(1, in_row - 1))
-                           if in_row > 1 else 0.5, 4)
-        s["y_pct"] = round(0.60 + 0.105 * r + rng.uniform(-0.014, 0.014), 4)
-    return stones
-
-
-def _count_out(prompt, narrative, explanation, want, archetype, band, rng,
-               tint="sage", props=None):
-    ch = _base(
-        "collect_count", "count", prompt, narrative, explanation,
-        _count_out_stones(rng, want, band, tint), int(want), archetype,
-    )
-    ch["props"] = props or []
-    ch["play_area"] = {"top_pct": 0.55, "bottom_pct": 0.95}
-    return ch
-
-
 # ------------------------------------------------------------ FREE RESPONSE
 #
 # Typed numeric answers, graded deterministically in app.py against
 # `answer_value` with `tolerance`. Never offered to ages 4-6: a pre-reader
-# hunting for the 7 key is a child who has stopped doing maths. Answers are
-# always short - one number, at most two decimal places.
+# hunting for the 7 key is a child who has stopped doing maths.
+#
+# `form="fraction"` means the answer is a fraction or a mixed number. The
+# value is still a float and grading is still numeric, but `answer_text`
+# records the canonical written form ("1 1/3") and app.parse_typed_number
+# accepts BOTH "1 1/3" and "4/3". `answer_text` is a SECRET FIELD.
 
 def _free_response(prompt, narrative, explanation, value, archetype,
-                   places=0, unit="", props=None):
-    tol = (0.5 * 10 ** (-places)) if places else 1e-6
+                   places=0, unit="", props=None, form=None, answer_text=None):
+    if form == "fraction":
+        # Wide enough that float(Fraction) round-tripped through six decimal
+        # places still matches; far narrower than the 1/12 gap between any
+        # two fractions we ever generate.
+        tol = 5e-5
+    else:
+        tol = (0.5 * 10 ** (-places)) if places else 1e-6
     ch = _base(
         "free_response", "value", prompt, narrative, explanation,
         [], 1, archetype,
@@ -413,415 +531,578 @@ def _free_response(prompt, narrative, explanation, value, archetype,
     )
     ch["props"] = props or []
     ch["play_area"] = {"top_pct": 0.55, "bottom_pct": 0.92}
+    if form:
+        ch["answer_form"] = form           # public: a formatting HINT only
+    if answer_text:
+        ch["answer_text"] = str(answer_text)   # SECRET - stripped in app.py
     return ch
 
 
-# ============================================================== ADDITION
+# ----------------------------------------------------------------- fractions
 
-def _a_berry_baskets(level, band, rng, char, setting):
-    """PICK-ONE. Two visible piles of berries; the prompt counts THOSE piles."""
-    if band == "k1":
-        hi = _scale(level, 3, 6)          # keeps every option countable as pips
-        a, b = rng.randint(1, hi), rng.randint(1, hi)
-    elif band == "23":
-        hi = _cal_scale(level, 12, 60)
-        a, b = rng.randint(5, max(6, hi)), rng.randint(3, max(4, hi))
-    else:
-        hi = _cal_scale(level, 120, 899)
-        a, b = rng.randint(50, max(51, hi)), rng.randint(40, max(41, hi))
-    total = a + b
-
-    props = [_prop("basket", 0.26, 0.40, 1.1, "red"), _prop("basket", 0.70, 0.40, 1.1, "blue")]
-    if a + b <= 20:
-        props += _cluster("berry", a, 0.26, 0.29, "red", 0.8)
-        props += _cluster("berry", b, 0.70, 0.29, "blue", 0.8)
-    else:
-        props += [_prop("sack", 0.26, 0.29, 1.0, str(a)), _prop("sack", 0.70, 0.29, 1.0, str(b))]
-
-    ch = _base(
-        "single_choice", "set",
-        f"{a} red berries and {b} blue berries. How many?",
-        f"{char} tipped two berry baskets together beside the {setting}. "
-        f"Count them all, then hop onto the right stone!",
-        f"{a} + {b} = {total}.",
-        _choice_stones(rng, total, max(2, total // 8 + 2), 4, band=band),
-        1, "berry_baskets",
-    )
-    ch["props"] = props
-    return ch
+def _frac_label(fr: Fraction) -> str:
+    """'3/4', '2', '1 1/3' - the way a child is taught to write it."""
+    n, d = fr.numerator, fr.denominator
+    if d == 1:
+        return str(n)
+    sign = "-" if n < 0 else ""
+    n = abs(n)
+    if n > d:
+        whole, rem = divmod(n, d)
+        return f"{sign}{whole} {rem}/{d}"
+    return f"{sign}{n}/{d}"
 
 
-def _a_toll_gate(level, band, rng, char, setting):
-    """PICK-A-SET (grade_mode sum). Pay a gate with gems that add to the toll."""
-    n = 2 if level <= 2 else 3
-    if band == "k1":
-        parts = [rng.randint(1, 5) for _ in range(n)]
-    elif band == "23":
-        parts = [rng.randint(3, _scale(level, 9, 25)) for _ in range(n)]
-    else:
-        parts = [rng.randint(15, _scale(level, 40, 120)) for _ in range(n)]
-    toll = sum(parts)
-
-    # NB: every gem gets the SAME tint. Tinting the payable ones differently
-    # would ship the answer key straight to the canvas.
-    stones = [_stone(i, v, v, True, dots=v if (band == "k1" and v <= K1_DOTS_MAX) else None,
-                     tint="lemon")
-              for i, v in enumerate(parts)]
-    for _ in range(3):
-        d = rng.randint(1, max(2, toll // 2))
-        stones.append(_stone(len(stones), d, d, False,
-                             dots=d if (band == "k1" and d <= K1_DOTS_MAX) else None, tint="lemon"))
-    rng.shuffle(stones)
-    for i, s in enumerate(stones):
-        s["id"] = i
-    _lay_row(rng, stones, 0.58, 0.78)
-
-    ch = _base(
-        "multi_select", "sum",
-        f"Pick gems that add up to exactly {toll}.",
-        f"A stone gate blocks the path. Its toll is {toll} gems - "
-        f"{char} must pick gems that add up to exactly that.",
-        f"{' + '.join(str(p) for p in parts)} = {toll}.",
-        stones, len(parts), "toll_gate",
-        answer_sum=float(toll), simulate="gate_open",
-    )
-    ch["props"] = [_prop("gate", 0.5, 0.30, 1.4, str(toll))]
-    return ch
+def _frac_options(rng, fr: Fraction, count: int = 4):
+    """`fr` plus plausible wrong fractions - the errors a child actually makes."""
+    seen = {fr}
+    out = [fr]
+    guard = 0
+    while len(out) < count and guard < 400:
+        guard += 1
+        n, d = fr.numerator, fr.denominator
+        try:
+            cand = rng.choice([
+                Fraction(n + rng.choice([1, -1, 2]), d),
+                Fraction(n, d + rng.choice([1, -1, 2])) if d > 3 else Fraction(n * 2, d),
+                Fraction(n * 2, d),
+                Fraction(n, d * 2),
+                Fraction(d, n) if n else fr,
+            ])
+        except (ZeroDivisionError, ValueError):
+            continue
+        if cand <= 0 or cand in seen or cand.denominator > 64 or cand.numerator > 99:
+            continue
+        seen.add(cand)
+        out.append(cand)
+    # last resort so the tray is always full
+    step = 1
+    while len(out) < count and step < 40:
+        cand = fr + Fraction(step, max(2, fr.denominator))
+        if cand > 0 and cand not in seen:
+            seen.add(cand)
+            out.append(cand)
+        step += 1
+    return out
 
 
-def _a_plank_bridge(level, band, rng, char, setting):
-    """PICK-ONE with a visible gap: planks you have + planks you found."""
-    if band == "k1":
-        a, b = rng.randint(2, _scale(level, 3, 6)), rng.randint(1, _scale(level, 3, 6))
-    elif band == "23":
-        a = rng.randint(8, max(9, _cal_scale(level, 25, 95)))
-        b = rng.randint(6, max(7, _cal_scale(level, 20, 80)))
-    else:
-        a = rng.randint(100, max(101, _cal_scale(level, 300, 950)))
-        b = rng.randint(80, max(81, _cal_scale(level, 250, 900)))
-    total = a + b
-    props = [_prop("bridge", 0.5, 0.52, 1.5, "gap")]
-    if total <= 18:
-        props += _cluster("plank", a, 0.22, 0.32, "carried", 0.85, cols=4)
-        props += _cluster("plank", b, 0.76, 0.32, "found", 0.85, cols=4)
-    else:
-        props += [_prop("sack", 0.22, 0.32, 1.0, str(a)), _prop("sack", 0.76, 0.32, 1.0, str(b))]
-
-    ch = _base(
-        "single_choice", "set",
-        f"{a} planks plus {b} more. How many planks?",
-        f"{char} carried {a} planks to the broken bridge and found {b} more in the reeds.",
-        f"{a} + {b} = {total}.",
-        _choice_stones(rng, total, max(3, total // 8 + 2), 4, band=band),
-        1, "plank_bridge", simulate="bridge_build",
-    )
-    ch["props"] = props
-    return ch
+def _plural(n, one, many=None) -> str:
+    """'1 hour' / '2 hours'. The playtest caught 'Raft drifts 1 posts a beat'."""
+    return one if abs(n) == 1 else (many or f"{one}s")
 
 
-def _a_acorn_count(level, band, rng, char, setting):
-    """COUNT-OUT. The patch holds more acorns than the answer.
+# ================================================== THE CONCEPT GRADE TABLE
+#
+# MIRRORED FROM THE CSV BANK. Each entry is the set of school grades in which
+# math_questions/ actually contains that concept. Regenerate with:
+#
+#     python3 -c "import question_bank as q; print(q.load().concept_grades_flat())"
+#
+# and test_engine asserts this table and the live bank agree, so editing a CSV
+# that moves a concept between grades fails the build rather than silently
+# mis-pitching a question at a child.
+#
+# It lives HERE, not only in question_bank, so that the gate is identical when
+# math_questions/ is absent - the offline demo path.
 
-    Replaces the deleted `berry_harvest`. There, every berry on screen was a
-    berry you wanted, so the child tapped all of them and never added
-    anything. Here the pile is deliberately too big: to stop at a + b you
-    have to know what a + b is.
+CONCEPT_GRADES: dict[str, tuple[int, ...]] = {
+    "add_2": (1, 2, 3),
+    "add_3": (2,),
+    "add_sub_chain": (3,),
+    "box_volume": (5,),
+    "clock_add_hours": (2,),
+    "coin_total": (2,),
+    "compare_size": (1,),
+    "count_next": (1,),
+    "dec_add": (4, 5),
+    "dec_mul": (5,),
+    "dec_sub": (4,),
+    "div_exact": (3, 4, 5),
+    "div_remainder": (3, 4),
+    "frac_add_same": (3, 4, 5),
+    "frac_add_unlike": (5,),
+    "frac_divide": (5,),
+    "frac_halves": (3,),
+    "frac_multiply": (5,),
+    "frac_of_whole": (3, 4),
+    "frac_remaining": (3,),
+    "frac_simplify": (4,),
+    "missing_addend": (4, 5),
+    "missing_factor": (4, 5),
+    "money_add_cents": (2,),
+    "mul_2": (2, 3, 4, 5),
+    "rect_area": (3, 4),
+    "rect_perimeter": (2,),
+    "rect_side_from_perimeter": (3,),
+    "sdt_distance": (5,),
+    "sdt_speed": (5,),
+    "sdt_time": (5,),
+    "shape_id": (1,),
+    "shape_sides": (1, 2),
+    "shape_sides_total": (1,),
+    "solid_faces": (1, 2),
+    "square_perimeter": (2, 3),
+    "square_side_from_area": (4,),
+    "sub_2": (1, 2, 3),
+    "triangle_angle_sum": (4, 5),
+    "triangle_area": (5,),
+    "two_step_linear": (4, 5),
+}
+
+# Which school grades each of our age bands spans.
+BAND_GRADES = {"k1": (1, 1), "23": (2, 3), "45": (4, 5)}
+# How many grades of REVIEW a band gets. A concept last taught in grade 3 is
+# fair revision for a grade-4 child; one last taught in grade 2 is not.
+REVIEW_CARRY_GRADES = 1
+
+# PRODUCT overrides, not curriculum ones. The bank's grades would also permit
+# these at the next band up; we do not, and the reason is not pedagogy.
+#
+#   shape_id  is the one archetype whose ANSWER is a picture rather than a
+#             number. It exists so a child who cannot read still gets a shape
+#             question. A seven-year-old can read, so they get the real
+#             question ("How many sides does a hexagon have?") instead - and
+#             "which door has 3 sides" was the single loudest playtest
+#             complaint, so it gets the narrowest possible home.
+CONCEPT_BAND_OVERRIDE: dict[str, tuple[str, ...]] = {
+    "shape_id": ("k1",),
+}
+
+
+def concept_bands(concept: str) -> list[str]:
+    """Which bands a concept is appropriate for, per the bank's grades.
+
+    Two-sided and both sides matter:
+      * TOO ADVANCED - the concept's earliest grade is above the band's top.
+        ("Two angles of a triangle..." for a five-year-old.)
+      * OUTGROWN - the concept's latest grade is more than
+        REVIEW_CARRY_GRADES below the band's bottom.
+        ("How many sides does a triangle have?" for a ten-year-old.)
     """
-    cap = count_out_cap(band)
-    hi = max(2, min(cap - 2, _scale(level, 3, cap - 2)))
-    a = rng.randint(1, hi)
-    b = rng.randint(1, max(1, min(hi, cap - a)))
-    total = a + b
-
-    return _count_out(
-        f"Take {a} acorns, then {b} more.",
-        f"{char} found an acorn patch beside the {setting} - far more acorns "
-        f"than one traveller needs. Take {a}, then {b} more, and leave the rest.",
-        f"{a} + {b} = {total} acorns.",
-        total, "acorn_count", band, rng, tint="lemon",
-        props=[_prop("basket", 0.07, 0.68, 1.2, "basket"),
-               _prop("tree", 0.92, 0.42, 1.1, "oak")],
-    )
+    grades = CONCEPT_GRADES.get(concept)
+    if not grades:
+        return []
+    out = []
+    for band, (g_lo, g_hi) in BAND_GRADES.items():
+        if min(grades) <= g_hi and max(grades) >= g_lo - REVIEW_CARRY_GRADES:
+            out.append(band)
+    override = CONCEPT_BAND_OVERRIDE.get(concept)
+    if override is not None:
+        out = [b for b in out if b in override]
+    return [b for b in ("k1", "23", "45") if b in out]
 
 
-def _a_sum_scroll(level, band, rng, char, setting):
-    """TYPE-IT. Free response: the child types the total."""
-    if band == "23":
-        lo, hi = _cal(6, _scale(level, 20, 90))
-    else:
-        lo, hi = _cal(40, _scale(level, 150, 900))
-    a = rng.randint(lo, max(lo + 1, hi))
-    b = rng.randint(lo, max(lo + 1, hi))
-    total = a + b
-    return _free_response(
-        f"{a} + {b} = ?",
-        f"A ferryman's tally-scroll bars the {setting}. {char} must write the "
-        f"total in the empty box before the ferry will move.",
-        f"{a} + {b} = {total}.",
-        total, "sum_scroll",
-        props=[_prop("signpost", 0.5, 0.30, 1.3, f"{a} + {b}"),
-               _prop("npc", 0.80, 0.40, 1.1, "ferryman")],
-    )
+# ===================================================== CONCEPT GENERATORS
+#
+# Each returns a SPEC: the maths, plus both wordings of it. `_as_pick` and
+# `_as_type` turn a spec into a multiple-choice or free-response challenge.
+# No generator knows or cares which presentation it will get.
+
+def _q(bare, expl, value, *, story=None, places=0, unit="", spread=None,
+       options=None, props=None, form=None, answer_text=None, narr=None):
+    return {
+        "bare": bare,            # "4.24 + 0.59 = ?"
+        "story": story,          # "4.24 litres, then 0.59 more. How much?"
+        "expl": expl,
+        "value": float(value),
+        "places": int(places),
+        "unit": unit or "",
+        "spread": spread,
+        "options": options,      # explicit [(label, value, correct, extra)]
+        "props": props or [],
+        "form": form,            # None | "fraction"
+        "answer_text": answer_text,
+        "narr": narr,
+    }
 
 
-# =========================================================== SUBTRACTION
+# --------------------------------------------------- counting & comparing
 
-def _s_lanterns_out(level, band, rng, char, setting):
-    """PICK-ONE. N lanterns are drawn; b of them are dark. How many still glow?"""
+def _k_count_next(level, band, rng, char, setting):
+    hi = _rs(band, level, 5, 480)
     if band == "k1":
-        a = rng.randint(4, _scale(level, 6, 10))
-        b = rng.randint(1, a - 1)
-    elif band == "23":
-        a = rng.randint(12, max(13, _cal_scale(level, 30, 120)))
-        b = rng.randint(4, a - 1)
-    else:
-        a = rng.randint(150, max(151, _cal_scale(level, 400, 950)))
-        b = rng.randint(40, a - 1)
-    left = a - b
+        hi = min(hi, 13)
+    start = rng.randint(max(2, hi // 2), max(3, hi))
+    forward = start <= 2 or rng.random() < 0.5
+    value = start + 1 if forward else start - 1
+    return _q(
+        f"What number comes {'after' if forward else 'before'} {start}?",
+        f"{start} {'+' if forward else '-'} 1 = {value}.",
+        value, spread=max(2, start // 8 + 2),
+        props=[_prop("signpost", 0.5, 0.32, 1.35, f"{start} ?")],
+        narr=f"A line of numbered milestones runs along the {setting}, and one "
+             f"of them is where {char} must stand next.")
 
+
+def _k_compare_size(level, band, rng, char, setting):
+    hi = _rs(band, level, 9, 9000)
+    if band == "k1":
+        hi = min(hi, K1_DOTS_MAX)
+    lo = max(1, hi // 4)
+    pool = range(lo, max(lo + 4, hi) + 1)
+    vals = rng.sample(list(pool), 3)
+    bigger = level <= 2 or rng.random() < 0.5
+    want = max(vals) if bigger else min(vals)
+    if band == "k1":
+        bare = f"Which pile has the {'most' if bigger else 'fewest'}?"
+        options = [("", v, v == want, {"dots": v, "tint": "sage"}) for v in vals]
+    else:
+        listed = ", ".join(str(v) for v in vals[:-1]) + f" or {vals[-1]}"
+        bare = f"Which is {'bigger' if bigger else 'smaller'}: {listed}?"
+        options = [(str(v), v, v == want, {}) for v in vals]
+    return _q(bare,
+              f"{', '.join(str(v) for v in sorted(vals))} - "
+              f"the {'biggest' if bigger else 'smallest'} is {want}.",
+              want, options=options,
+              props=[_prop("signpost", 0.06, 0.34, 1.0, "?")],
+              narr=f"Three heaps sit on the path beside the {setting}. {char} "
+                   f"may only carry one of them away.")
+
+
+# ------------------------------------------------------ addition & subtraction
+
+def _k_add_2(level, band, rng, char, setting):
+    hi = _rs(band, level, 4, 900)
+    if band == "k1":
+        hi = min(hi, 7)
+    lo, hi = _span(hi, 0.45, 1)
+    a, b = rng.randint(lo, hi), rng.randint(lo, hi)
+    if band == "k1":
+        while a + b > 13 and b > 1:
+            b -= 1
+        while a + b > 13 and a > 1:
+            a -= 1
+    total = a + b
+    return _q(f"{a} + {b} = ?", f"{a} + {b} = {total}.", total,
+              story=f"{a} red berries and {b} blue berries. How many?",
+              spread=max(2, total // 7 + 2),
+              props=[_prop("basket", 0.30, 0.36, 1.1, str(a)),
+                     _prop("basket", 0.70, 0.36, 1.1, str(b))],
+              narr=f"Two baskets sit tipped together beside the {setting}, and "
+                   f"{char} has to know the total before moving on.")
+
+
+def _k_add_3(level, band, rng, char, setting):
+    lo, hi = _span(_rs(band, level, 6, 140), 0.45, 1)
+    a, b, c = (rng.randint(lo, hi) for _ in range(3))
+    total = a + b + c
+    return _q(f"{a} + {b} + {c} = ?", f"{a} + {b} + {c} = {total}.", total,
+              story=f"Three sacks hold {a}, {b} and {c} gems. How many?",
+              spread=max(3, total // 7 + 2),
+              props=[_prop("sack", 0.26, 0.36, 1.0, str(a)),
+                     _prop("sack", 0.50, 0.36, 1.0, str(b)),
+                     _prop("sack", 0.74, 0.36, 1.0, str(c))],
+              narr=f"Three sacks were left on the bank of the {setting}. "
+                   f"{char} counts what is in all of them.")
+
+
+def _k_add_sub_chain(level, band, rng, char, setting):
+    lo, hi = _span(_rs(band, level, 20, 900), 0.5)
+    a = rng.randint(lo, hi)
+    b = rng.randint(lo, hi)
+    c = rng.randint(lo, max(lo + 1, min(a + b - 1, hi)))
+    total = a + b - c
+    return _q(f"{a} + {b} - {c} = ?",
+              f"{a} + {b} = {a + b}, then {a + b} - {c} = {total}.", total,
+              spread=max(3, total // 7 + 2),
+              props=[_prop("signpost", 0.5, 0.30, 1.4, f"{a}+{b}-{c}")],
+              narr=f"A tally slate is wedged in the rocks beside the {setting}. "
+                   f"{char} must work it through in order.")
+
+
+def _k_sub_2(level, band, rng, char, setting):
+    hi = _rs(band, level, 5, 900)
+    if band == "k1":
+        hi = min(hi, 14)
+    lo, hi = _span(hi, 0.55)
+    a = rng.randint(lo, hi)
+    b = rng.randint(max(1, int(a * 0.25)), max(1, a - 1))
+    left = a - b
+    return _q(f"{a} - {b} = ?", f"{a} - {b} = {left}.", left,
+              story=f"{a} lanterns. {b} blew out. How many still glow?",
+              spread=max(2, left // 6 + 2),
+              props=[_prop("lantern", 0.32, 0.34, 1.2, str(a)),
+                     _prop("lantern", 0.68, 0.34, 1.2, f"-{b}")],
+              narr=f"A gust came off the {setting} and swept along {char}'s "
+                   f"line of lanterns.")
+
+
+# --------------------------------------------------------------- time & money
+
+_COIN_VALUE = {"penny": 1, "nickel": 5, "dime": 10, "quarter": 25}
+_COIN_PLURAL = {"penny": "pennies", "nickel": "nickels",
+                "dime": "dimes", "quarter": "quarters"}
+
+
+def _coin_phrase(counts: dict) -> str:
+    bits = [f"{n} {_plural(n, k, _COIN_PLURAL[k])}" for k, n in counts.items()]
+    if len(bits) == 1:
+        return bits[0]
+    return ", ".join(bits[:-1]) + f" and {bits[-1]}"
+
+
+def _k_coin_total(level, band, rng, char, setting):
+    if band == "k1":
+        # Every option must stay countable as pips, so the biggest purse a
+        # five-year-old can be handed is 3 pennies and 2 nickels.
+        counts = {"penny": rng.randint(1, 3)}
+        if level >= 3:
+            counts["nickel"] = rng.randint(1, 2)
+    else:
+        kinds = rng.sample(["penny", "nickel", "dime", "quarter"],
+                           2 if level <= 3 else 3)
+        clo, chi = _span(min(9, _rs(band, level, 2, 9, cal=False)), 0.5, 1)
+        counts = {k: rng.randint(clo, chi) for k in kinds}
+    total = sum(_COIN_VALUE[k] * n for k, n in counts.items())
     props = []
-    if a <= 16:
-        props += _cluster("lantern", a - b, 0.33, 0.34, "lit", 0.9, cols=4)
-        props += _cluster("lantern", b, 0.70, 0.34, "dark", 0.9, cols=4)
-    else:
-        props += [_prop("lantern", 0.33, 0.34, 1.2, f"{a} lit"),
-                  _prop("lantern", 0.70, 0.34, 1.2, f"{b} out")]
-
-    ch = _base(
-        "single_choice", "set",
-        f"{a} lanterns. {b} blew out. How many still glow?",
-        f"A gust swept across the {setting} and snuffed {b} of {char}'s {a} lanterns.",
-        f"{a} - {b} = {left}.",
-        _choice_stones(rng, left, max(2, left // 6 + 2), 4, band=band),
-        1, "lanterns_out", simulate="lantern_light",
-    )
-    ch["props"] = props
-    return ch
+    for i, (k, n) in enumerate(counts.items()):
+        props += _cluster("gem", n, 0.26 + i * 0.22, 0.34, k, 0.7, cols=3)
+    return _q(f"{_coin_phrase(counts)}. How many cents?",
+              " + ".join(f"{n} x {_COIN_VALUE[k]}" for k, n in counts.items())
+              + f" = {total} cents.",
+              total, spread=max(3, total // 4 + 2), unit="c", props=props,
+              narr=f"{char} tips a purse out on the stall counter by the "
+                   f"{setting}, and the stall-keeper is not a patient soul.")
 
 
-def _s_stones_left(level, band, rng, char, setting):
-    """COUNT-OUT. Take away b from a, then count out what is LEFT.
-
-    Replaces the deleted `pick_around_mushrooms`, where the mushrooms simply
-    looked like mushrooms and the child never subtracted anything.
-    """
-    cap = count_out_cap(band)
-    a = rng.randint(3, max(4, min(cap, _scale(level, 5, cap))))
-    b = rng.randint(1, max(1, a - 1))
-    left = a - b
-
-    return _count_out(
-        f"{a} stones. The tide took {b}. Step on the rest.",
-        f"{char} counted {a} stepping stones across the {setting} at dawn. "
-        f"The tide has swallowed {b} of them. Step on every stone still dry - "
-        f"and only those.",
-        f"{a} - {b} = {left} stones left.",
-        left, "stones_left", band, rng, tint="sky",
-        props=[_prop("signpost", 0.07, 0.55, 1.1, f"{a}-{b}")],
-    )
-
-
-def _s_tally_scroll(level, band, rng, char, setting):
-    """TYPE-IT. Free response subtraction."""
-    if band == "23":
-        hi = max(12, _cal_scale(level, 30, 120))
-        a = rng.randint(12, hi)
-    else:
-        hi = max(150, _cal_scale(level, 400, 950))
-        a = rng.randint(150, hi)
-    b = rng.randint(2, max(3, a - 1))
-    left = a - b
-    return _free_response(
-        f"{a} - {b} = ?",
-        f"A toll-keeper's slate stands at the edge of the {setting}. {char} "
-        f"must write what is left before the path will open.",
-        f"{a} - {b} = {left}.",
-        left, "tally_scroll",
-        props=[_prop("signpost", 0.5, 0.30, 1.3, f"{a} - {b}"),
-               _prop("gate", 0.5, 0.60, 1.0, "toll")],
-    )
-
-
-def _s_spend_gems(level, band, rng, char, setting):
-    """PICK-ONE. A purse you can see, a price you can see."""
+def _k_money_add_cents(level, band, rng, char, setting):
+    hi = _rs(band, level, 5, 95)
     if band == "k1":
-        a = rng.randint(5, _scale(level, 8, 12))
-        b = rng.randint(1, a - 1)
-    elif band == "23":
-        a = rng.randint(20, _scale(level, 60, 200))
-        b = rng.randint(5, a - 1)
-    else:
-        a = rng.randint(200, _scale(level, 500, 990))
-        b = rng.randint(60, a - 1)
-    left = a - b
-
-    ch = _base(
-        "single_choice", "set",
-        f"You have {a} gems. Spend {b}. How many left?",
-        f"The ferry-keeper of the {setting} wants {b} gems from {char}'s purse of {a}.",
-        f"{a} - {b} = {left}.",
-        _choice_stones(rng, left, max(2, left // 6 + 2), 4, band=band),
-        1, "spend_gems",
-    )
-    ch["props"] = [_prop("sack", 0.25, 0.34, 1.2, str(a)),
-                   _prop("npc", 0.72, 0.36, 1.2, "ferry-keeper"),
-                   _prop("gem", 0.60, 0.34, 0.9, str(b))]
-    return ch
+        hi = min(hi, 9)
+    lo, hi = _span(hi, 0.45, 1)
+    a, b = rng.randint(lo, hi), rng.randint(lo, hi)
+    if band == "k1":
+        while a + b > 14 and b > 1:
+            b -= 1
+    total = a + b
+    return _q(f"You have {a} cents and find {b} more. Total?",
+              f"{a} + {b} = {total} cents.", total,
+              spread=max(2, total // 5 + 2), unit="c",
+              props=[_prop("sack", 0.30, 0.38, 1.1, f"{a}c"),
+                     _prop("gem", 0.68, 0.36, 0.9, f"{b}c")],
+              narr=f"{char} finds another few coins glinting in the mud at "
+                   f"the edge of the {setting}.")
 
 
-def _s_countdown_path(level, band, rng, char, setting):
-    """ORDERED-WALK. Skip-count backwards across scattered stones.
-
-    Not "walk to the numbered stone" - the child has to plan a route, and the
-    decoys are only wrong because of where they fall in the sequence.
-    """
-    step = rng.randint(2, _scale(level, 3, 9))
-    hops = 5
-    start = step * rng.randint(hops, hops + _scale(level, 3, 14))
-    seq = [start - step * i for i in range(hops)]
-
-    values = list(seq)
-    while len(values) < hops + 3:
-        d = rng.choice([-1, 1, 2, -2, step + 1, -(step + 1)])
-        cand = rng.choice(seq) + d
-        if cand > 0 and cand not in values:
-            values.append(cand)
-
-    order = list(range(len(values)))
-    rng.shuffle(order)                       # scramble ids so order != layout
-    stones = []
-    for new_id, idx in enumerate(order):
-        stones.append(_stone(new_id, values[idx], values[idx], values[idx] in seq))
-    id_of = {values[idx]: new_id for new_id, idx in enumerate(order)}
-
-    slots = [(0.14, 0.62), (0.35, 0.86), (0.55, 0.60), (0.76, 0.84),
-             (0.88, 0.62), (0.24, 0.76), (0.46, 0.70), (0.66, 0.90)]
-    rng.shuffle(slots)
-    for s, (x, y) in zip(stones, slots):
-        s["x_pct"], s["y_pct"] = x, y
-
-    ch = _base(
-        "ordered_path", "order",
-        f"Start at {start}. Step back by {step} each time.",
-        f"The tide is coming in over the {setting}. Only the counting stones stay "
-        f"above water - {char} must take them in the right order.",
-        f"{' -> '.join(str(v) for v in seq)} (take {step} away each hop).",
-        stones, hops, "countdown_path",
-        answer_order=[id_of[v] for v in seq], simulate="water_rise",
-    )
-    ch["props"] = [_prop("signpost", 0.06, 0.55, 1.1, f"-{step}")]
-    ch["play_area"] = {"top_pct": 0.55, "bottom_pct": 0.95}
-    return ch
+def _k_clock_add_hours(level, band, rng, char, setting):
+    now = rng.randint(1, 12)
+    add = rng.randint(*_span(min(9, _rs(band, level, 2, 9, cal=False)), 0.6, 1))
+    value = (now + add - 1) % 12 + 1
+    return _q(f"It is {now} o'clock. What time in {add} {_plural(add, 'hour')}?",
+              f"{now} o'clock plus {add} {_plural(add, 'hour')} is {value} o'clock.",
+              value, spread=3, props=[_prop("clock", 0.5, 0.32, 1.5, f"{now}")],
+              narr=f"The bell tower over the {setting} reads {now}. {char} has "
+                   f"to be somewhere, and needs to know when.")
 
 
-# ======================================================== MULTIPLICATION
+# ------------------------------------------------------------- multiplication
 
-def _m_orchard_count(level, band, rng, char, setting):
-    """COUNT-OUT. Take r x c seeds from a sack that holds far more.
-
-    Replaces the deleted `plant_orchard`, which laid out exactly r x c holes
-    and asked the child to step in all of them - a walk, not a product.
-    """
-    cap = count_out_cap(band)
-    r = rng.randint(2, max(2, min(4, _scale(level, 2, 4))))
-    c = rng.randint(2, max(2, min(cap // r, _scale(level, 3, 6))))
-    total = r * c
-
-    return _count_out(
-        f"Plant {r} rows of {c} seeds. Take that many.",
-        f"The seed sack by the {setting} is heavy with far more than {char} "
-        f"needs. Count out exactly enough for {r} rows of {c} - no more.",
-        f"{r} x {c} = {total} seeds.",
-        total, "orchard_count", band, rng, tint="sage",
-        props=[_prop("sack", 0.07, 0.60, 1.2, "seed"),
-               _prop("signpost", 0.93, 0.55, 1.0, f"{r}x{c}")],
-    )
-
-
-def _m_product_scroll(level, band, rng, char, setting):
-    """TYPE-IT. Free response multiplication."""
-    if band == "23":
-        a = rng.randint(2, max(3, min(12, _cal_scale(level, 4, 10))))
-        b = rng.randint(2, max(3, min(12, _cal_scale(level, 5, 12))))
-    else:
-        a = rng.randint(4, max(5, min(40, _cal_scale(level, 8, 25))))
-        b = rng.randint(3, max(4, min(20, _cal_scale(level, 6, 15))))
+def _k_mul_2(level, band, rng, char, setting):
+    a = rng.randint(*_span(_rs(band, level, 3, 600)))
+    b = rng.randint(*_span(_rs(band, level, 2, 70), 0.5))
     total = a * b
-    return _free_response(
-        f"{a} x {b} = ?",
-        f"A miller's counting-board blocks the mill door on the {setting}. "
-        f"{char} must write the product to get inside.",
-        f"{a} x {b} = {total}.",
-        total, "product_scroll",
-        props=[_prop("signpost", 0.5, 0.30, 1.3, f"{a} x {b}"),
-               _prop("gate", 0.5, 0.62, 1.0, "mill")],
-    )
+    return _q(f"{a} x {b} = ?", f"{a} x {b} = {total}.", total,
+              story=f"{a} baskets hold {b} apples each. How many apples?",
+              spread=max(3, total // 7 + 2),
+              props=_cluster("basket", min(a, 8), 0.5, 0.33, str(b), 0.85,
+                             cols=4, step_x=0.075),
+              narr=f"{char} lines the baskets up along the {setting} and counts "
+                   f"what the whole row comes to.")
 
 
-def _m_rows_of_lanterns(level, band, rng, char, setting):
-    """PICK-ONE, but the r rows of c lanterns are actually drawn."""
-    if band == "23":
-        r = rng.randint(2, _scale(level, 4, 9))
-        c = rng.randint(2, 9)
+def _k_div_exact(level, band, rng, char, setting):
+    b = rng.randint(*_span(min(30, _rs(band, level, 2, 25)), 0.5))
+    q = rng.randint(*_span(min(140, _rs(band, level, 3, 95))))
+    a = b * q
+    return _q(f"{a} / {b} = ?", f"{a} / {b} = {q}.", q,
+              story=f"{a} apples shared into {b} baskets. How many each?",
+              spread=max(2, q // 5 + 2),
+              props=[_prop("signpost", 0.5, 0.30, 1.4, f"{a}/{b}")],
+              narr=f"The whole haul has to be split evenly before {char} can "
+                   f"go on past the {setting}.")
+
+
+def _k_div_remainder(level, band, rng, char, setting):
+    b = rng.randint(*_span(min(12, _rs(band, level, 3, 9, cal=False)), 0.6, 3))
+    q = rng.randint(*_span(min(140, _rs(band, level, 3, 90))))
+    r = rng.randint(1, b - 1)
+    a = b * q + r
+    if rng.random() < 0.5:
+        bare = f"{a} divided by {b}. What is the remainder?"
+        value = r
     else:
-        r = rng.randint(3, _scale(level, 9, 20))
-        c = rng.randint(4, _scale(level, 9, 25))
-    total = r * c
-
-    props = []
-    if total <= 40 and r <= 6 and c <= 8:
-        for i in range(r):
-            props += _cluster("lantern", c, 0.5, 0.20 + i * 0.055, "row", 0.62,
-                              cols=c, step_x=0.06)
-    else:
-        props = [_prop("lantern", 0.5, 0.30, 1.4, f"{r} rows of {c}")]
-
-    ch = _base(
-        "single_choice", "set",
-        f"{r} rows of {c} lanterns. How many lanterns?",
-        f"The festival ropes above the {setting} hold {r} rows with {c} lanterns in each.",
-        f"{r} x {c} = {total}.",
-        _choice_stones(rng, total, max(3, total // 7 + 2), 4, band=band),
-        1, "rows_of_lanterns",
-    )
-    ch["props"] = props
-    return ch
+        bare = f"{a} divided by {b}. How many whole groups?"
+        value = q
+    return _q(bare, f"{a} = {b} x {q} + {r}.", value,
+              spread=max(2, value // 4 + 2),
+              props=[_prop("signpost", 0.5, 0.30, 1.4, f"{a}/{b}"),
+                     _prop("basket", 0.78, 0.40, 1.0, "left over")],
+              narr=f"They will not divide evenly, and {char} has to know "
+                   f"exactly what is left on the {setting} path.")
 
 
-def _m_equal_baskets(level, band, rng, char, setting):
-    if band == "23":
-        a = rng.randint(2, _scale(level, 4, 9))
-        b = rng.randint(2, 9)
-    else:
-        a = rng.randint(4, _scale(level, 12, 30))
-        b = rng.randint(5, _scale(level, 11, 22))
-    total = a * b
+# ------------------------------------------------------------------ fractions
 
-    ch = _base(
-        "single_choice", "set",
-        f"{a} baskets hold {b} apples each. How many apples?",
-        f"{char} lined up {a} baskets along the {setting}, and every single one holds {b} apples.",
-        f"{a} x {b} = {total}.",
-        _choice_stones(rng, total, max(3, total // 7 + 2), 4, band=band),
-        1, "equal_baskets",
-    )
-    ch["props"] = _cluster("basket", min(a, 10), 0.5, 0.33, str(b), 0.9, cols=5, step_x=0.075)
-    return ch
+_DENOM_LADDER = [2, 3, 4, 5, 6, 8, 10, 12]
 
 
-# ============================================================= FRACTIONS
+def _denoms(band, level, cap=8):
+    """How adventurous the denominators may get at this rung."""
+    n = max(1, min(len(_DENOM_LADDER), cap,
+                   _rs(band, level, 2, len(_DENOM_LADDER), cal=False)))
+    return _DENOM_LADDER[:n]
 
-def _f_safe_sandbars(level, band, rng, char, setting):
-    """GROUP-SELECT. A fraction is n of d EQUAL groups - so draw d groups.
 
-    Total is always d*k, so n/d of it is never a fractional number of stones.
-    ANY n complete sandbars is a correct answer - that is what "n of d equal
-    parts" means - so the fiction says "weigh down n/d of the crossing", not
-    "find the secret safe ones". The grader in app.py agrees: it counts whole
-    groups, it does not check which ones. A part-covered sandbar fails.
+def _k_frac_of_whole(level, band, rng, char, setting):
+    d = rng.choice(_denoms(band, level))
+    n = rng.choice([i for i in range(1, d) if math.gcd(i, d) == 1] or [1])
+    k = rng.randint(*_span(min(16, _rs(band, level, 2, 14)), 0.6))
+    total = d * k
+    value = n * k
+    return _q(f"What is {n}/{d} of {total}?",
+              f"{total} / {d} = {k}, then {k} x {n} = {value}.", value,
+              spread=max(2, value // 4 + 2),
+              props=[_prop("pie_gate", 0.5, 0.30, 1.5, f"{n}/{d}")],
+              narr=f"A miller's ledger hangs by the {setting}, and the share "
+                   f"written on it is the only way {char} gets past.")
+
+
+def _k_frac_add_same(level, band, rng, char, setting):
+    d = rng.choice(_denoms(band, level)[1:] or [3])
+    a = rng.randint(1, d - 1)
+    # Improper sums (and therefore mixed-number answers) only once the rung
+    # is high enough; below that the sum stays inside one whole.
+    top = (d - 1) if difficulty_rung(band, level) >= 8 else max(1, d - a)
+    b = rng.randint(1, max(1, top))
+    fr = Fraction(a + b, d)
+    return _q(f"{a}/{d} + {b}/{d} = ? Simplify.",
+              f"{a}/{d} + {b}/{d} = {a + b}/{d} = {_frac_label(fr)}.",
+              float(fr), form="fraction", answer_text=_frac_label(fr),
+              options=[(_frac_label(f), float(f), f == fr, {})
+                       for f in _frac_options(rng, fr)],
+              props=[_prop("pie_gate", 0.32, 0.32, 1.2, f"{a}/{d}"),
+                     _prop("pie_gate", 0.68, 0.32, 1.2, f"{b}/{d}")],
+              narr=f"Two moon-shards lie on the stone table by the {setting}. "
+                   f"{char} must say what they make together.")
+
+
+def _k_frac_add_unlike(level, band, rng, char, setting):
+    pool = _denoms(band, level)
+    if len(pool) < 2:
+        pool = [2, 3]
+    d1, d2 = rng.sample(pool, 2)
+    a = rng.randint(1, d1 - 1)
+    b = rng.randint(1, d2 - 1)
+    fr = Fraction(a, d1) + Fraction(b, d2)
+    return _q(f"{a}/{d1} + {b}/{d2} = ? Simplify.",
+              f"{a}/{d1} + {b}/{d2} = {_frac_label(fr)}.",
+              float(fr), form="fraction", answer_text=_frac_label(fr),
+              options=[(_frac_label(f), float(f), f == fr, {})
+                       for f in _frac_options(rng, fr)],
+              props=[_prop("pie_gate", 0.32, 0.32, 1.2, f"{a}/{d1}"),
+                     _prop("pie_gate", 0.68, 0.32, 1.2, f"{b}/{d2}")],
+              narr=f"The two shards are cut to different sizes. {char} has to "
+                   f"find the measure that fits both before the {setting} gate opens.")
+
+
+def _k_frac_multiply(level, band, rng, char, setting):
+    pool = _denoms(band, level)
+    d1 = rng.choice(pool)
+    d2 = rng.choice(pool)
+    a = rng.randint(1, max(1, d1 - 1))
+    b = rng.randint(1, max(1, d2 - 1))
+    fr = Fraction(a, d1) * Fraction(b, d2)
+    return _q(f"{a}/{d1} x {b}/{d2} = ? Simplify.",
+              f"{a} x {b} = {a * b} over {d1} x {d2} = {d1 * d2}, "
+              f"which is {_frac_label(fr)}.",
+              float(fr), form="fraction", answer_text=_frac_label(fr),
+              options=[(_frac_label(f), float(f), f == fr, {})
+                       for f in _frac_options(rng, fr)],
+              props=[_prop("pie_gate", 0.5, 0.30, 1.5, f"{a}/{d1}")],
+              narr=f"A share of a share. {char} works it out on the flat rock "
+                   f"above the {setting}.")
+
+
+def _k_frac_divide(level, band, rng, char, setting):
+    pool = _denoms(band, level)
+    d1 = rng.choice(pool)
+    d2 = rng.choice(pool)
+    a = rng.randint(1, max(1, d1 - 1))
+    b = rng.randint(1, max(1, d2 - 1))
+    fr = Fraction(a, d1) / Fraction(b, d2)
+    return _q(f"{a}/{d1} divided by {b}/{d2} = ? Simplify.",
+              f"Turn it upside down and multiply: {a}/{d1} x {d2}/{b} "
+              f"= {_frac_label(fr)}.",
+              float(fr), form="fraction", answer_text=_frac_label(fr),
+              options=[(_frac_label(f), float(f), f == fr, {})
+                       for f in _frac_options(rng, fr)],
+              props=[_prop("pie_gate", 0.32, 0.32, 1.2, f"{a}/{d1}"),
+                     _prop("pie_gate", 0.68, 0.32, 1.2, f"{b}/{d2}")],
+              narr=f"The hardest kind of share there is. {char} takes a long "
+                   f"breath and works it through beside the {setting}.")
+
+
+def _k_frac_simplify(level, band, rng, char, setting):
+    d = rng.choice(_denoms(band, level)[1:] or [3])
+    n = rng.randint(1, d - 1)
+    base = Fraction(n, d)
+    m = rng.randint(2, max(2, min(6, _rs(band, level, 2, 6, cal=False))))
+    num, den = base.numerator * m, base.denominator * m
+    return _q(f"Write {num}/{den} in its simplest form.",
+              f"{num} and {den} both divide by {m}: {_frac_label(base)}.",
+              float(base), form="fraction", answer_text=_frac_label(base),
+              options=[(_frac_label(f), float(f), f == base, {})
+                       for f in _frac_options(rng, base)],
+              props=[_prop("pie_gate", 0.5, 0.30, 1.5, f"{num}/{den}")],
+              narr=f"The carving on the {setting} gate is written the long way "
+                   f"round. {char} has to write it the short way.")
+
+
+_PART_NAMES = [("halves", 2), ("thirds", 3), ("quarters", 4), ("fifths", 5),
+               ("sixths", 6), ("eighths", 8)]
+
+
+def _k_frac_halves(level, band, rng, char, setting):
+    pool = _PART_NAMES[:max(1, min(len(_PART_NAMES),
+                                   _rs(band, level, 1, 6, cal=False)))]
+    name, d = rng.choice(pool)
+    w = rng.randint(*_span(min(14, _rs(band, level, 3, 12, cal=False)), 0.6))
+    value = d * w
+    return _q(f"How many {name} make {w} {_plural(w, 'whole')}?",
+              f"{w} x {d} = {value} {name}.", value,
+              spread=max(2, value // 4 + 2),
+              props=[_prop("pie_gate", 0.5, 0.30, 1.5, f"1/{d}")],
+              narr=f"The bridge over the {setting} is planked in {name}, and "
+                   f"{char} needs the full count before crossing.")
+
+
+def _k_frac_remaining(level, band, rng, char, setting):
+    d = rng.choice(_denoms(band, level)[1:] or [3])
+    eaten = rng.randint(1, d - 1)
+    fr = Fraction(d - eaten, d)
+    return _q(f"You eat {eaten} of {d} equal slices. What fraction is left?",
+              f"{d} - {eaten} = {d - eaten} slices of {d}, "
+              f"which is {_frac_label(fr)}.",
+              float(fr), form="fraction", answer_text=_frac_label(fr),
+              options=[(_frac_label(f), float(f), f == fr, {})
+                       for f in _frac_options(rng, fr)],
+              props=[_prop("pie_gate", 0.5, 0.30, 1.6, f"{d}")],
+              narr=f"Supper on the bank of the {setting}, and {char} is "
+                   f"working out what there is left for tomorrow.")
+
+
+def _k_frac_sandbars(level, band, rng, char, setting):
+    """THE ONE KEPT VISUAL MECHANIC. Ages 7-8 only.
+
+    "Step on n of these d equal sandbars" is not a gimmick wrapped round a
+    fraction - it IS the definition of n/d, acted out. It survives the
+    2026-09-19b cull on that basis, restricted to the youngest band that
+    meets fractions at all, and every other fraction archetype is a straight
+    question. Any n complete sandbars grades as correct, which is what "n of
+    d equal parts" means; the grader in app.py counts whole groups and does
+    not care which ones.
     """
-    denom_options = {1: [2], 2: [2, 3], 3: [3, 4], 4: [4, 5, 6], 5: [6, 8]}[_lvl(level)]
-    d = rng.choice(denom_options)
+    d = rng.choice({1: [2], 2: [2, 3], 3: [3, 4], 4: [4, 5, 6], 5: [6, 8]}[_lvl(level)])
     n = rng.randint(1, d - 1)
     k = rng.choice([1, 2]) if level <= 2 else 2
     total = d * k
@@ -844,711 +1125,654 @@ def _f_safe_sandbars(level, band, rng, char, setting):
 
     ch = _base(
         "multi_select", "groups",
-        f"Step on {n} whole sandbar{'s' if n != 1 else ''} - that is {n}/{d}.",
-        f"{char} must cross the {setting}! The crossing is {d} sandbars holding "
-        f"{total} stones, and it only sinks level if {n}/{d} of it is weighed down.",
+        f"Step on {n} whole {_plural(n, 'sandbar')} - that is {n}/{d}.",
+        f"{char} must cross the {setting}! The crossing is {d} equal sandbars "
+        f"holding {total} stones, and it only sinks level if {n}/{d} of it is "
+        f"weighed down.",
         f"{n}/{d} of {total} stones = {safe_count} stones - any {n} whole sandbars.",
-        stones, safe_count, "safe_sandbars",
+        stones, safe_count, "frac_sandbars",
         answer_group_count=n, group_count=d,
     )
     ch["props"] = [_prop("signpost", 0.06, 0.56, 1.1, f"{n}/{d}")]
     return ch
 
 
-def _f_fraction_of_berries(level, band, rng, char, setting):
-    """COLLECT-N: pick n/d OF a visible pile. The pile size is in the prompt."""
-    d = rng.choice({1: [2], 2: [2, 4], 3: [3, 4], 4: [4, 5], 5: [5, 6, 8]}[_lvl(level)])
-    n = rng.randint(1, d - 1)
-    k = rng.randint(2, 3)
-    total = d * k
-    want = n * k
+# ------------------------------------------------------------------- decimals
 
-    stones = []
-    for i in range(total):
-        s = _stone(i, "", "berry", True, tint="pink")
-        r, c = divmod(i, 6)
-        s["x_pct"] = round(0.16 + 0.68 * (c / 5) + rng.uniform(-0.02, 0.02), 4)
-        s["y_pct"] = round(0.62 + 0.12 * r, 4)
-        stones.append(s)
-
-    ch = _base(
-        "multi_select", "count",
-        f"Pick {n}/{d} of these {total} berries.",
-        f"{char} may take only {n}/{d} of the {total} moonberries growing by the {setting} - "
-        f"the rest belong to the birds.",
-        f"{n}/{d} of {total} = {want} berries ({total} / {d} = {k}, then {k} x {n} = {want}).",
-        stones, want, "fraction_of_berries",
-    )
-    ch["props"] = [_prop("basket", 0.07, 0.68, 1.2, f"{n}/{d}")]
-    ch["play_area"] = {"top_pct": 0.56, "bottom_pct": 0.95}
-    return ch
-
-
-def _f_pie_gate(level, band, rng, char, setting):
-    """PICK-ONE. A gate split into d wedges with n glowing - name the fraction."""
-    d = rng.choice({1: [2], 2: [2, 4], 3: [3, 4, 6], 4: [4, 6, 8], 5: [5, 6, 8, 10]}[_lvl(level)])
-    n = rng.randint(1, d - 1)
-
-    options = {(n, d)}
-    while len(options) < 4:
-        dd = rng.choice([d, d, max(2, d + rng.choice([-2, -1, 1, 2]))])
-        nn = rng.randint(1, dd - 1)
-        options.add((nn, dd))
-    opts = list(options)
-    rng.shuffle(opts)
-    stones = [_stone(i, f"{a}/{b}", a / b, (a, b) == (n, d)) for i, (a, b) in enumerate(opts)]
-    _lay_row(rng, stones)
-
-    ch = _base(
-        "single_choice", "set",
-        f"{n} of the gate's {d} wedges glow. Which fraction?",
-        f"A round moon-gate bars the {setting}. {char} must name the glowing part to open it.",
-        f"{n} glowing out of {d} equal wedges = {n}/{d}.",
-        stones, 1, "pie_gate", simulate="gate_open",
-    )
-    ch["props"] = [_prop("pie_gate", 0.5, 0.30, 1.6, f"{n}/{d}")]
-    return ch
-
-
-def _f_fraction_scroll(level, band, rng, char, setting):
-    """TYPE-IT. "What is n/d of T?" - always a whole-number answer."""
-    d = rng.choice({1: [2], 2: [2, 4], 3: [3, 4], 4: [4, 5, 6], 5: [5, 6, 8]}[_lvl(level)])
-    n = rng.randint(1, d - 1)
-    k = rng.randint(2, max(2, min(12, _cal_scale(level, 3, 9))))
-    total = d * k
-    want = n * k
-    return _free_response(
-        f"What is {n}/{d} of {total}?",
-        f"A miller's ledger hangs by the {setting}. {char} must write the "
-        f"share exactly, or the wheel stays still.",
-        f"{total} / {d} = {k}, then {k} x {n} = {want}.",
-        want, "fraction_scroll",
-        props=[_prop("pie_gate", 0.5, 0.30, 1.5, str(d)),
-               _prop("signpost", 0.82, 0.40, 1.0, f"{n}/{d}")],
-    )
-
-
-# ============================================================== DECIMALS
-
-def _d_number_line_leap(level, band, rng, char, setting):
-    """PICK-ONE by POSITION. Unlabelled lily pads along a labelled number line."""
-    span = _scale(level, 3, 6)
-    places = 1 if level <= 3 else 2
-    step = 0.1 if places == 1 else 0.05
-    choices = []
-    guard = 0
-    while len(choices) < 5 and guard < 500:
-        guard += 1
-        v = round(rng.randrange(1, int(span / step)) * step, places)
-        if v <= 0 or v >= span:
-            continue
-        if any(abs(v - c) < step * 2 for c in choices):
-            continue
-        choices.append(v)
-    choices.sort()
-    target = rng.choice(choices)
-
-    stones = []
-    for i, v in enumerate(choices):
-        s = _stone(i, "", v, abs(v - target) < 1e-9, tint="mint")
-        s["x_pct"] = round(0.10 + 0.80 * (v / span), 4)
-        s["y_pct"] = 0.70
-        stones.append(s)
-
-    props = [_prop("tick", 0.10 + 0.80 * (t / span), 0.60, 1.0, f"{t}")
-             for t in range(span + 1)]
-
-    ch = _base(
-        "single_choice", "set",
-        f"Leap to {target:.{places}f} on the number line.",
-        f"Lily pads float along a measuring rope across the {setting}. "
-        f"{char} must land on exactly the right spot.",
-        f"{target:.{places}f} sits between {math.floor(target)} and {math.floor(target) + 1}.",
-        stones, 1, "number_line_leap",
-    )
-    ch["props"] = props
-    ch["play_area"] = {"top_pct": 0.64, "bottom_pct": 0.80}
-    return ch
-
-
-def _d_rain_gauge(level, band, rng, char, setting):
-    """PICK-A-SET (sum) with decimal droplets."""
-    places = 1 if level <= 3 else 2
-    n = 2 if level <= 2 else 3
-    unit = 10 ** places
-    parts = [round(rng.randrange(3, 30 * (unit // 10)) / unit, places) for _ in range(n)]
-    target = round(sum(parts), places)
-
-    # Same tint for payable and decoy droplets - see _a_toll_gate.
-    stones = [_stone(i, f"{v:.{places}f}", v, True, tint="sky") for i, v in enumerate(parts)]
-    for _ in range(3):
-        d = round(rng.randrange(3, 30 * (unit // 10)) / unit, places)
-        stones.append(_stone(len(stones), f"{d:.{places}f}", d, False, tint="sky"))
-    rng.shuffle(stones)
-    for i, s in enumerate(stones):
-        s["id"] = i
-    _lay_row(rng, stones, 0.58, 0.78)
-
-    ch = _base(
-        "multi_select", "sum",
-        f"Fill the gauge to exactly {target:.{places}f} litres.",
-        f"{char}'s rain gauge must read exactly {target:.{places}f} litres before the "
-        f"flood gate on the {setting} will open.",
-        f"{' + '.join(f'{p:.{places}f}' for p in parts)} = {target:.{places}f}.",
-        stones, len(parts), "rain_gauge",
-        answer_sum=float(target), tolerance=0.5 / unit, simulate="water_rise",
-    )
-    ch["props"] = [_prop("droplet", 0.5, 0.28, 1.5, f"{target:.{places}f} L")]
-    return ch
-
-
-def _d_measure_rope(level, band, rng, char, setting):
+def _k_dec_add(level, band, rng, char, setting):
     places = 1 if level <= 2 else 2
+    hi = max(1, _rs(band, level, 1, 12))
     unit = 10 ** places
-    a = round(rng.randrange(2, 20 * unit) / unit, places)
-    b = round(rng.randrange(2, 20 * unit) / unit, places)
+    flo = max(1, int(hi * unit * 0.35))
+    a = round(rng.randrange(flo, max(flo + 1, hi * unit)) / unit, places)
+    b = round(rng.randrange(flo, max(flo + 1, hi * unit)) / unit, places)
     total = round(a + b, places)
-
-    def fmt(v):
-        return f"{v / unit:.{places}f}"
-
-    stones = _choice_stones(rng, int(round(total * unit)),
-                            spread=max(3, unit // 4), count=4, formatter=fmt, band=band)
-    ch = _base(
-        "single_choice", "set",
-        f"Ropes {a:.{places}f} m and {b:.{places}f} m. Total length?",
-        f"{char} knotted two ropes together to swing across the {setting}.",
-        f"{a:.{places}f} + {b:.{places}f} = {total:.{places}f} m.",
-        stones, 1, "measure_rope",
-    )
-    ch["props"] = [_prop("rope", 0.30, 0.36, 1.2, f"{a:.{places}f} m"),
-                   _prop("rope", 0.68, 0.36, 1.2, f"{b:.{places}f} m")]
-    return ch
+    return _q(f"{a:.{places}f} + {b:.{places}f} = ?",
+              f"{a:.{places}f} + {b:.{places}f} = {total:.{places}f}.",
+              total, places=places, unit="L",
+              spread=max(3, int(total * unit) // 6 + 2),
+              props=[_prop("droplet", 0.33, 0.32, 1.3, f"{a:.{places}f}"),
+                     _prop("droplet", 0.67, 0.32, 1.3, f"{b:.{places}f}")],
+              narr=f"The flood gauge on the {setting} wants a reading, and "
+                   f"{char} is the only one here who can give it one.")
 
 
-def _d_gauge_scroll(level, band, rng, char, setting):
-    """TYPE-IT. Decimal addition, typed - tolerance handles the rounding."""
-    places = 1 if level <= 3 else 2
+def _k_dec_sub(level, band, rng, char, setting):
+    places = 1 if level <= 2 else 2
+    hi = max(2, _rs(band, level, 2, 14))
     unit = 10 ** places
-    a = round(rng.randrange(5, 40 * unit) / unit, places)
-    b = round(rng.randrange(5, 40 * unit) / unit, places)
-    total = round(a + b, places)
-    return _free_response(
-        f"{a:.{places}f} + {b:.{places}f} = ?",
-        f"The flood-gauge on the {setting} needs a reading. {char} must write "
-        f"the total depth in litres.",
-        f"{a:.{places}f} + {b:.{places}f} = {total:.{places}f}.",
-        total, "gauge_scroll", places=places, unit="L",
-        props=[_prop("droplet", 0.34, 0.32, 1.3, f"{a:.{places}f}"),
-               _prop("droplet", 0.66, 0.32, 1.3, f"{b:.{places}f}")],
-    )
+    flo = max(unit, int(hi * unit * 0.45))
+    a = round(rng.randrange(flo, max(flo + 1, hi * unit)) / unit, places)
+    b = round(rng.randrange(max(1, int(a * unit * 0.25)),
+                            max(2, int(a * unit))) / unit, places)
+    left = round(a - b, places)
+    return _q(f"{a:.{places}f} - {b:.{places}f} = ?",
+              f"{a:.{places}f} - {b:.{places}f} = {left:.{places}f}.",
+              left, places=places, unit="L",
+              spread=max(3, int(left * unit) // 6 + 2),
+              props=[_prop("droplet", 0.33, 0.32, 1.3, f"{a:.{places}f}"),
+                     _prop("droplet", 0.67, 0.32, 1.3, f"-{b:.{places}f}")],
+              narr=f"The water has dropped overnight. {char} reads the marks "
+                   f"on the {setting} post and works out how far.")
 
 
-# ============================================================== GEOMETRY
+def _k_dec_mul(level, band, rng, char, setting):
+    hi = max(2, _rs(band, level, 3, 10))
+    a = round(rng.randrange(max(10, int(hi * 10 * 0.45)),
+                            max(11, hi * 10)) / 10, 1)
+    if level <= 3:
+        b = rng.randint(*_span(min(9, _rs(band, level, 2, 9, cal=False)), 0.6))
+        value = round(a * b, 1)
+        bare = f"{a:.1f} x {b} = ?"
+        expl = f"{a:.1f} x {b} = {value:.1f}."
+        places = 1
+    else:
+        b = round(rng.randrange(11, 99) / 10, 1)
+        value = round(a * b, 2)
+        bare = f"{a:.1f} x {b:.1f} = ?"
+        expl = f"{a:.1f} x {b:.1f} = {value:.2f}."
+        places = 2
+    return _q(bare, expl, value, places=places,
+              spread=max(4, int(value * 10 ** places) // 7 + 2),
+              props=[_prop("droplet", 0.33, 0.32, 1.3, f"{a:.1f}"),
+                     _prop("signpost", 0.67, 0.34, 1.1, f"x {b}")],
+              narr=f"Every barrel along the {setting} holds the same, and "
+                   f"{char} needs the total before the cart will move.")
 
-def _g_shape_door(level, band, rng, char, setting):
-    """PICK-ONE with DRAWN polygons - a 4-year-old counts sides, reads nothing."""
-    pool_size = max(3, min(len(SHAPES), _scale(level, 3, 5)))
-    pool = rng.sample(SHAPES, pool_size)
+
+# ------------------------------------------------------------------- geometry
+
+_POLYGONS = [("triangle", 3), ("square", 4), ("rectangle", 4),
+             ("pentagon", 5), ("hexagon", 6), ("octagon", 8)]
+_SOLIDS = [("cube", {"faces": 6, "edges": 12, "corners": 8}),
+           ("rectangular box", {"faces": 6, "edges": 12, "corners": 8}),
+           ("square pyramid", {"faces": 5, "edges": 8, "corners": 5}),
+           ("triangular prism", {"faces": 5, "edges": 9, "corners": 6})]
+
+
+def _k_shape_sides(level, band, rng, char, setting):
+    pool = _POLYGONS[:max(2, min(len(_POLYGONS),
+                                 _rs(band, level, 2, 6, cal=False)))]
     name, sides = rng.choice(pool)
+    part = "corners" if (level >= 3 and rng.random() < 0.4) else "sides"
+    if band == "k1":
+        # A pre-reader should not have to decode the word "hexagon", so the
+        # shape itself is drawn on the plate and the prompt points at it.
+        bare = f"How many {part} does this shape have?"
+    else:
+        bare = f"How many {part} does a {name} have?"
+    return _q(bare, f"A {name} has {sides} {part}.", sides, spread=3,
+              props=[_prop("shape", 0.5, 0.32, 1.8, name)],
+              narr=f"A shape is carved deep into the rock face above the "
+                   f"{setting}, and {char} is counting.")
 
-    stones = []
-    for i, (nm, sd) in enumerate(pool):
-        stones.append(_stone(i, "", nm, nm == name, shape=nm,
-                             tint=TINTS[i % len(TINTS)], dots=sd or None))
-    rng.shuffle(stones)
-    for i, s in enumerate(stones):
-        s["id"] = i
-    _lay_row(rng, stones, 0.62, 0.72)
 
+def _k_shape_sides_total(level, band, rng, char, setting):
+    cap = 6 if band == "k1" else 8
+    pool = [p for p in _POLYGONS if p[1] <= cap]
+    name, sides = rng.choice(pool)
+    n = rng.randint(2, 3 if band == "k1"
+                    else max(2, min(6, _rs(band, level, 2, 6, cal=False))))
+    if band == "k1":
+        while n * sides > K1_DOTS_MAX and n > 2:
+            n -= 1
+        if n * sides > K1_DOTS_MAX:
+            name, sides = "triangle", 3
+    value = n * sides
+    return _q(f"How many sides do {n} {name}s have altogether?",
+              f"{n} x {sides} = {value} sides.", value,
+              spread=max(2, value // 4 + 2),
+              props=_cluster("shape", n, 0.5, 0.32, name, 1.1, cols=3, step_x=0.15),
+              narr=f"A whole row of them, cut into the {setting} wall. {char} "
+                   f"counts every edge.")
+
+
+def _k_solid_faces(level, band, rng, char, setting):
+    pool = _SOLIDS[:2] if band == "k1" else _SOLIDS
+    name, parts = rng.choice(pool)
+    if band == "k1" or level <= 2:
+        part = "faces"
+    else:
+        part = rng.choice(["faces", "edges", "corners"])
+    value = parts[part]
+    return _q(f"How many {part} does a {name} have?",
+              f"A {name} has {value} {part}.", value, spread=4,
+              props=[_prop("tile", 0.5, 0.32, 1.6, name)],
+              narr=f"A solid block of stone sits in the path beside the "
+                   f"{setting}, and it is not moving until {char} answers.")
+
+
+def _k_shape_id(level, band, rng, char, setting):
+    """The only archetype where the PICTURE is the answer. Ages 4-6 only.
+
+    Kept, narrowly, because "Which shape has 3 sides?" is a verbatim grade-1
+    concept in the team's own bank and because a child who cannot read has no
+    other way to be asked a shape question. It is gated to k1 by
+    CONCEPT_GRADES["shape_id"] = (1,), so a ten-year-old can never see it -
+    which was the actual complaint. The door fiction is gone.
+    """
+    pool = rng.sample(SHAPES, min(len(SHAPES), 3 if level <= 3 else 4))
+    name, sides = rng.choice(pool)
     if sides == 0:
-        prompt = "Which door is round with no corners?"
+        bare = "Which shape is round with no corners?"
         expl = "A circle has no straight sides at all."
     else:
-        prompt = f"Which door has exactly {sides} sides?"
+        bare = f"Which shape has {sides} sides?"
         expl = f"A {name} has {sides} sides."
+    options = [(("" if band == "k1" else nm), nm, nm == name,
+                {"shape": nm, "tint": TINTS[i % len(TINTS)],
+                 "dots": sd or None})
+               for i, (nm, sd) in enumerate(pool)]
+    return _q(bare, expl, 0, options=options,
+              props=[_prop("signpost", 0.06, 0.34, 1.0, "?")],
+              narr=f"Shapes are chalked along the wall beside the {setting}. "
+                   f"Only one of them is the one {char} wants.")
 
-    ch = _base(
-        "single_choice", "set", prompt,
-        f"{char} found a row of carved doors in the {setting} wall. "
-        f"Only one will swing open!",
-        expl, stones, 1, "shape_door", simulate="gate_open",
-    )
-    ch["props"] = [_prop("gate", 0.5, 0.28, 1.3, "shape door")]
-    return ch
+
+def _k_square_perimeter(level, band, rng, char, setting):
+    s = rng.randint(*_span(min(40, _rs(band, level, 4, 30))))
+    value = 4 * s
+    return _q(f"A square has {s} cm sides. What is its perimeter?",
+              f"4 x {s} = {value} cm.", value, unit="cm",
+              spread=max(3, value // 6 + 2),
+              props=[_prop("rope", 0.5, 0.34, 1.5, f"{s} cm")],
+              narr=f"A square plot is roped off beside the {setting}, and "
+                   f"{char} has to walk the whole edge of it.")
 
 
-def _g_fence_posts(level, band, rng, char, setting):
-    """COUNT-OUT the PERIMETER from a pile that holds more posts than needed.
+def _k_rect_perimeter(level, band, rng, char, setting):
+    lo, hi = _span(min(40, _rs(band, level, 4, 30)), 0.45)
+    length = rng.randint(lo, hi)
+    width = rng.randint(lo, hi)
+    value = 2 * (length + width)
+    return _q(f"A rectangle is {length} cm by {width} cm. Perimeter?",
+              f"2 x ({length} + {width}) = {value} cm.", value, unit="cm",
+              spread=max(3, value // 6 + 2),
+              props=[_prop("fence_post", 0.32, 0.32, 1.0, f"{length} cm"),
+                     _prop("fence_post", 0.68, 0.32, 1.0, f"{width} cm")],
+              narr=f"{char} paces out the plot beside the {setting} and needs "
+                   f"the distance all the way round.")
 
-    Replaces the deleted `walk_perimeter` (touch four corners in order - the
-    perimeter only ever appeared in the explanation) and `tile_the_floor`
-    (step on every tile that was already drawn for you). Here the arithmetic
-    is unavoidable: nothing on screen tells you 2 x (3 + 2) is ten.
-    """
-    cap = count_out_cap(band)
-    # Keep 2*(L+W) inside the band's counting cap.
-    half = max(2, cap // 2)
-    length = rng.randint(1, max(1, min(half - 1, _scale(level, 2, half - 1))))
-    width = rng.randint(1, max(1, half - length))
+
+def _k_rect_area(level, band, rng, char, setting):
+    lo, hi = _span(min(40, _rs(band, level, 4, 26)), 0.45)
+    length = rng.randint(lo, hi)
+    width = rng.randint(lo, hi)
+    value = length * width
+    return _q(f"A rectangle is {length} cm by {width} cm. Area?",
+              f"{length} x {width} = {value} square cm.", value,
+              unit="cm", spread=max(4, value // 6 + 2),
+              props=[_prop("tile", 0.5, 0.32, 1.6, f"{length}x{width}")],
+              narr=f"The flagstone by the {setting} has to be measured across "
+                   f"and along before {char} can cut a new one.")
+
+
+def _k_rect_side_from_perimeter(level, band, rng, char, setting):
+    lo, hi = _span(min(40, _rs(band, level, 4, 26)), 0.45)
+    length = rng.randint(lo, hi)
+    width = rng.randint(lo, hi)
     perim = 2 * (length + width)
-
-    return _count_out(
-        f"Fence a {length} by {width} plot. One post per step.",
-        f"{char} is roping off a {length} by {width} garden beside the "
-        f"{setting}. Take one post for every step around the edge - the pile "
-        f"holds plenty more than that.",
-        f"Perimeter = {length} + {width} + {length} + {width} = {perim} posts.",
-        perim, "fence_posts", band, rng, tint="peach",
-        props=[_prop("fence_post", 0.07, 0.58, 1.1, "pile"),
-               _prop("rope", 0.92, 0.55, 1.0, f"{length}x{width}")],
-    )
+    return _q(f"A rectangle has perimeter {perim} cm and length {length} cm. Width?",
+              f"{perim} / 2 = {length + width}, minus {length} = {width} cm.",
+              width, unit="cm", spread=max(3, width // 3 + 2),
+              props=[_prop("rope", 0.5, 0.34, 1.5, f"{perim} cm")],
+              narr=f"The rope round the plot is the right length, but one side "
+                   f"is missing from the {setting} surveyor's slate.")
 
 
-def _g_survey_scroll(level, band, rng, char, setting):
-    """TYPE-IT. Area or perimeter of a rectangle, typed."""
-    length = rng.randint(3, max(4, min(40, _cal_scale(level, 7, 20))))
-    width = rng.randint(2, max(3, min(30, _cal_scale(level, 5, 15))))
-    mode = rng.choice(["perimeter", "area"]) if level >= 2 else "perimeter"
-    value = 2 * (length + width) if mode == "perimeter" else length * width
-    return _free_response(
-        f"A {length} by {width} plot. What is the {mode}?",
-        f"A surveyor's slate leans on the wall by the {setting}. {char} must "
-        f"write the answer in chalk before the gate unlocks.",
-        (f"Perimeter = 2 x ({length} + {width}) = {value}."
-         if mode == "perimeter" else f"Area = {length} x {width} = {value}."),
-        value, "survey_scroll",
-        props=[_prop("fence_post", 0.32, 0.32, 1.0, str(length)),
-               _prop("fence_post", 0.68, 0.32, 1.0, str(width)),
-               _prop("rope", 0.50, 0.38, 1.4, f"{length} x {width}")],
-    )
+def _k_square_side_from_area(level, band, rng, char, setting):
+    s = rng.randint(*_span(min(30, _rs(band, level, 3, 20)), 0.5))
+    area = s * s
+    return _q(f"A square has area {area} square cm. How long is each side?",
+              f"{s} x {s} = {area}, so each side is {s} cm.", s, unit="cm",
+              spread=max(2, s // 2 + 2),
+              props=[_prop("tile", 0.5, 0.32, 1.6, f"{area}")],
+              narr=f"The paving stone by the {setting} is square, and only its "
+                   f"area is written on it.")
 
 
-def _g_garden_measure(level, band, rng, char, setting):
-    """PICK-ONE: area or perimeter of a rectangle that is drawn on screen."""
-    length = rng.randint(3, _scale(level, 7, 20))
-    width = rng.randint(2, _scale(level, 5, 15))
-    mode = rng.choice(["perimeter", "area"]) if level >= 2 else "perimeter"
-    correct = 2 * (length + width) if mode == "perimeter" else length * width
-
-    ch = _base(
-        "single_choice", "set",
-        f"Garden is {length} by {width}. What is the {mode}?",
-        f"{char} paced out a garden plot beside the {setting}: {length} long, {width} wide.",
-        (f"Perimeter = 2 x ({length} + {width}) = {correct}."
-         if mode == "perimeter" else f"Area = {length} x {width} = {correct}."),
-        _choice_stones(rng, correct, max(3, correct // 6), 4, band=band),
-        1, "garden_measure",
-    )
-    ch["props"] = [_prop("fence_post", 0.30, 0.30, 1.0, str(length)),
-                   _prop("fence_post", 0.70, 0.30, 1.0, str(width)),
-                   _prop("rope", 0.50, 0.34, 1.4, f"{length} x {width}")]
-    return ch
+def _k_triangle_area(level, band, rng, char, setting):
+    lo, hi = _span(min(40, _rs(band, level, 5, 26)), 0.45, 3)
+    base = rng.randrange(max(2, lo - lo % 2), max(4, hi + 1), 2)  # even: half is whole
+    height = rng.randint(lo, hi)
+    value = base * height // 2
+    return _q(f"A triangle has base {base} cm and height {height} cm. Area?",
+              f"{base} x {height} / 2 = {value} square cm.", value,
+              unit="cm", spread=max(4, value // 6 + 2),
+              props=[_prop("shape", 0.5, 0.32, 1.8, "triangle")],
+              narr=f"A wedge of sailcloth lies on the rocks by the {setting}, "
+                   f"and {char} needs to know how much of it there is.")
 
 
-# =============================================================== ALGEBRA
-
-def _al_mystery_sacks(level, band, rng, char, setting):
-    """PICK-ONE. n identical sacks + c loose gems = b total. Sacks are drawn."""
-    x = rng.randint(2, _scale(level, 6, 20))
-    n = rng.randint(2, min(5, 2 + level))
-    c = rng.randint(0, _scale(level, 4, 15))
-    b = n * x + c
-
-    if c:
-        prompt = f"{n} equal sacks plus {c} gems make {b}. Sack size?"
-        expl = f"({b} - {c}) / {n} = {n * x} / {n} = {x} gems per sack."
-    else:
-        prompt = f"{n} equal sacks hold {b} gems. Sack size?"
-        expl = f"{b} / {n} = {x} gems per sack."
-
-    ch = _base(
-        "single_choice", "set", prompt,
-        f"A troll by the {setting} shows {char} {n} sacks that all weigh the same"
-        + (f", plus {c} loose gems" if c else "")
-        + f". Altogether: {b} gems.",
-        expl,
-        _choice_stones(rng, x, max(2, x // 3 + 2), 4, band=band),
-        1, "mystery_sacks",
-    )
-    props = _cluster("sack", n, 0.36, 0.33, "?", 1.0, cols=5, step_x=0.07)
-    props += _cluster("gem", min(c, 12), 0.72, 0.33, "loose", 0.7, cols=4)
-    props.append(_prop("signpost", 0.90, 0.33, 1.1, f"= {b}"))
-    ch["props"] = props
-    return ch
+def _k_box_volume(level, band, rng, char, setting):
+    lo, hi = _span(min(20, _rs(band, level, 3, 14)), 0.5)
+    l = rng.randint(lo, hi)
+    w = rng.randint(lo, hi)
+    h = rng.randint(lo, hi)
+    value = l * w * h
+    return _q(f"A box is {l} by {w} by {h} cm. Its volume?",
+              f"{l} x {w} x {h} = {value} cubic cm.", value, unit="cm",
+              spread=max(5, value // 6 + 2),
+              props=[_prop("tile", 0.5, 0.32, 1.7, f"{l}x{w}x{h}")],
+              narr=f"A crate has washed up on the {setting} shore and {char} "
+                   f"wants to know what it would hold.")
 
 
-def _al_balance_bridge(level, band, rng, char, setting):
-    """PICK-ONE. A see-saw bridge: both sides must weigh the same."""
-    x = rng.randint(2, _scale(level, 8, 22))
-    a = rng.randint(1, _scale(level, 8, 25))
-    b = x + a
-    ch = _base(
-        "single_choice", "set",
-        f"x + {a} = {b}. What is x?",
-        f"A balance bridge over the {setting} holds {a} stones and one mystery crate on "
-        f"the left, {b} stones on the right. {char} must match them.",
-        f"x = {b} - {a} = {x}.",
-        _choice_stones(rng, x, max(2, x // 3 + 2), 4, band=band),
-        1, "balance_bridge",
-    )
-    ch["props"] = [_prop("bridge", 0.5, 0.40, 1.6, "balance"),
-                   _prop("sack", 0.32, 0.30, 1.1, "x"),
-                   _prop("gem", 0.42, 0.31, 0.8, str(a)),
-                   _prop("gem", 0.68, 0.31, 0.9, str(b))]
-    return ch
-
-
-def _al_balance_scales(level, band, rng, char, setting):
-    """PICK-A-SET (sum). Find the missing addend by loading the light pan."""
-    a = rng.randint(3, _scale(level, 12, 40))
-    parts = [rng.randint(2, _scale(level, 8, 25)) for _ in range(2 if level <= 3 else 3)]
-    x = sum(parts)
-    b = a + x
-
-    stones = [_stone(i, v, v, True, tint="coral") for i, v in enumerate(parts)]
-    for _ in range(3):
-        d = rng.randint(2, max(3, x))
-        stones.append(_stone(len(stones), d, d, False, tint="coral"))
-    rng.shuffle(stones)
-    for i, s in enumerate(stones):
-        s["id"] = i
-    _lay_row(rng, stones, 0.60, 0.80)
-
-    ch = _base(
-        "multi_select", "sum",
-        f"Left pan holds {a}. Add gems to reach {b}.",
-        f"A stone scale guards the {setting}. {char} must load the light pan until "
-        f"both sides balance - not a gem over, not a gem under.",
-        f"x = {b} - {a} = {x}, and {' + '.join(str(p) for p in parts)} = {x}.",
-        stones, len(parts), "balance_scales",
-        answer_sum=float(x), simulate="gate_open",
-    )
-    ch["props"] = [_prop("bridge", 0.5, 0.36, 1.6, "scales"),
-                   _prop("gem", 0.32, 0.28, 1.0, str(a)),
-                   _prop("signpost", 0.70, 0.28, 1.1, f"= {b}")]
-    return ch
-
-
-def _al_rune_scroll(level, band, rng, char, setting):
-    """TYPE-IT. Solve for the rune and write its value."""
-    x = rng.randint(2, max(3, min(40, _cal_scale(level, 8, 25))))
-    m = rng.randint(2, max(2, min(6, 1 + level)))
-    c = rng.randint(1, max(2, _cal_scale(level, 5, 20)))
+def _k_triangle_angle_sum(level, band, rng, char, setting):
     if level <= 2:
-        b = x + c
-        prompt = f"? + {c} = {b}. What is the missing number?"
-        expl = f"{b} - {c} = {x}."
+        a = 90                                    # the bank's easiest form
+        b = rng.randint(20, 65)
     else:
-        b = m * x + c
-        prompt = f"{m} x ? + {c} = {b}. Find the number."
-        expl = f"({b} - {c}) / {m} = {m * x} / {m} = {x}."
-    return _free_response(
-        prompt,
-        f"A carved rune-stone blocks the way past the {setting}. {char} must "
-        f"chalk the missing number onto it to make it roll aside.",
-        expl, x, "rune_scroll",
-        props=[_prop("signpost", 0.5, 0.30, 1.4, "?"),
-               _prop("sack", 0.30, 0.40, 1.0, "?")],
-    )
+        a = rng.randint(20, 100)
+        b = rng.randint(20, max(21, 155 - a))
+    value = 180 - a - b
+    if value < 5:                                 # never ask for a sliver
+        b = max(20, b - (5 - value))
+        value = 180 - a - b
+    return _q(f"Two angles of a triangle are {a} and {b} degrees. Third?",
+              f"180 - {a} - {b} = {value} degrees.", value, unit="degrees",
+              spread=max(4, value // 5 + 2),
+              props=[_prop("shape", 0.5, 0.32, 1.9, "triangle"),
+                     _prop("signpost", 0.82, 0.40, 1.0, f"{a}/{b}")],
+              narr=f"The ledge above the {setting} cuts a triangle against the "
+                   f"sky, and {char} must read the last corner of it.")
 
 
-# ============================================== SPEED / DISTANCE / TIME
+# -------------------------------------------------------------------- algebra
 
-def _sdt_mile_count(level, band, rng, char, setting):
-    """COUNT-OUT. Take one marker per mile from a pile holding more.
-
-    Replaces the deleted `mile_markers`, which drew exactly speed x time
-    stones and asked the child to touch all of them - the answer was the
-    layout, so nobody ever multiplied.
-    """
-    cap = count_out_cap(band)
-    speed = rng.randint(2, max(2, min(6, _scale(level, 2, 6))))
-    t = rng.randint(2, max(2, min(5, _scale(level, 2, 5))))
-    while speed * t > cap and t > 1:
-        t -= 1
-    while speed * t > cap and speed > 1:
-        speed -= 1
-    total = speed * t
-
-    return _count_out(
-        f"Run {t} hours at {speed} mph. Take one stone per mile.",
-        f"{char} is running the {setting} road. The cairn beside the start "
-        f"holds plenty of marker stones - take exactly one for each mile of "
-        f"the run ahead.",
-        f"distance = {speed} x {t} = {total} miles.",
-        total, "mile_count", band, rng, tint="lemon",
-        props=[_prop("clock", 0.07, 0.52, 1.2, f"{t} h"),
-               _prop("signpost", 0.93, 0.52, 1.1, f"{speed} mph")],
-    )
+def _k_missing_addend(level, band, rng, char, setting):
+    x = rng.randint(*_span(min(200, _rs(band, level, 12, 95)), 0.45))
+    c = rng.randint(*_span(min(200, _rs(band, level, 10, 95)), 0.45))
+    b = x + c
+    return _q(f"x + {c} = {b}. What is x?", f"x = {b} - {c} = {x}.", x,
+              spread=max(2, x // 3 + 2),
+              props=[_prop("sack", 0.34, 0.36, 1.1, "x"),
+                     _prop("signpost", 0.68, 0.34, 1.2, f"= {b}")],
+              narr=f"A rune-stone blocks the path past the {setting}. One mark "
+                   f"on it has worn away and {char} must chalk it back.")
 
 
-def _sdt_logbook_scroll(level, band, rng, char, setting):
-    """TYPE-IT. Distance, time or speed - written into the logbook."""
-    speed = rng.randint(2, max(3, min(120, _cal_scale(level, 10, 80))))
-    time = rng.randint(2, max(3, min(12, _cal_scale(level, 3, 9))))
-    distance = speed * time
-    mode = rng.choice(["distance", "time", "speed"]) if level >= 3 else "distance"
-    if mode == "distance":
-        prompt = f"{speed} km/h for {time} hours. How far in km?"
-        value, expl = distance, f"{speed} x {time} = {distance} km."
-    elif mode == "time":
-        prompt = f"{distance} km at {speed} km/h. How many hours?"
-        value, expl = time, f"{distance} / {speed} = {time} hours."
+def _k_missing_factor(level, band, rng, char, setting):
+    m = rng.randint(*_span(min(12, _rs(band, level, 2, 12, cal=False)), 0.5))
+    x = rng.randint(*_span(min(120, _rs(band, level, 8, 50)), 0.45))
+    b = m * x
+    return _q(f"{m}x = {b}. What is x?", f"x = {b} / {m} = {x}.", x,
+              spread=max(2, x // 3 + 2),
+              props=_cluster("sack", m, 0.5, 0.34, "x", 0.95, cols=5, step_x=0.08)
+              + [_prop("signpost", 0.9, 0.34, 1.1, f"= {b}")],
+              narr=f"Identical sacks, all the same weight, stacked against the "
+                   f"{setting} gate. {char} has to work out what one holds.")
+
+
+def _k_two_step_linear(level, band, rng, char, setting):
+    m = rng.randint(*_span(min(9, _rs(band, level, 2, 9, cal=False)), 0.5))
+    x = rng.randint(*_span(min(90, _rs(band, level, 6, 45)), 0.45))
+    c = rng.randint(*_span(min(90, _rs(band, level, 8, 45)), 0.45))
+    b = m * x + c
+    return _q(f"{m}x + {c} = {b}. What is x?",
+              f"{b} - {c} = {m * x}, then {m * x} / {m} = {x}.", x,
+              spread=max(2, x // 3 + 2),
+              props=[_prop("sack", 0.30, 0.36, 1.1, "x"),
+                     _prop("gem", 0.50, 0.34, 0.9, str(c)),
+                     _prop("signpost", 0.74, 0.34, 1.2, f"= {b}")],
+              narr=f"Two steps to undo, in the right order. The rune-gate over "
+                   f"the {setting} will not open for a guess.")
+
+
+# ------------------------------------------------------ speed, distance, time
+
+def _k_sdt_distance(level, band, rng, char, setting):
+    speed = rng.randint(*_span(min(140, _rs(band, level, 32, 110)), 0.6, 5))
+    t = rng.randint(*_span(min(9, _rs(band, level, 2, 7, cal=False)), 0.6))
+    dist = speed * t
+    return _q(f"A train runs {speed} km/h for {t} hours. How far in km?",
+              f"{speed} x {t} = {dist} km.", dist, unit="km",
+              spread=max(5, dist // 6 + 2),
+              props=[_prop("clock", 0.32, 0.32, 1.3, f"{t} h"),
+                     _prop("signpost", 0.68, 0.34, 1.1, f"{speed} km/h")],
+              narr=f"The line runs straight out across the {setting}, and "
+                   f"{char} is working out where it ends up.")
+
+
+def _k_sdt_time(level, band, rng, char, setting):
+    speed = rng.randint(*_span(min(140, _rs(band, level, 32, 110)), 0.6, 5))
+    t = rng.randint(*_span(min(9, _rs(band, level, 2, 7, cal=False)), 0.6))
+    dist = speed * t
+    return _q(f"A cyclist rides {dist} km at {speed} km/h. How many hours?",
+              f"{dist} / {speed} = {t} hours.", t, unit="h",
+              spread=max(2, t + 2),
+              props=[_prop("clock", 0.5, 0.32, 1.5, "?"),
+                     _prop("signpost", 0.80, 0.36, 1.1, f"{speed} km/h")],
+              narr=f"{char} has to be at the far side of the {setting} before "
+                   f"dark, and the light is already going.")
+
+
+def _k_sdt_speed(level, band, rng, char, setting):
+    speed = rng.randint(*_span(min(140, _rs(band, level, 32, 110)), 0.6, 5))
+    t = rng.randint(*_span(min(9, _rs(band, level, 2, 7, cal=False)), 0.6))
+    dist = speed * t
+    return _q(f"A train covers {dist} km in {t} hours. Its speed in km/h?",
+              f"{dist} / {t} = {speed} km/h.", speed, unit="km/h",
+              spread=max(3, speed // 4 + 2),
+              props=[_prop("clock", 0.32, 0.32, 1.3, f"{t} h"),
+                     _prop("signpost", 0.68, 0.34, 1.1, f"{dist} km")],
+              narr=f"The stationmaster's log by the {setting} has the distance "
+                   f"and the hours, and a blank where the speed should be.")
+
+
+# ================================================== SPEC -> CHALLENGE
+
+_TOPIC_PROMPT_LEAD = {
+    "counting_and_comparing": "counting",
+    "addition": "sum",
+    "subtraction": "difference",
+    "time_and_money": "money",
+    "multiplication": "product",
+    "fractions": "fraction",
+    "decimals": "measure",
+    "geometry": "measure",
+    "algebra": "rune",
+    "speed_distance_time": "reckoning",
+}
+
+
+def _spec_narrative(spec, char, setting) -> str:
+    return spec.get("narr") or (
+        f"{char} stops where the path meets the {setting}. There is a "
+        f"reckoning to be done here before anything else happens.")
+
+
+def _as_pick(spec, band, rng, char, setting, archetype, use_story=False):
+    """MULTIPLE CHOICE. The answers are DOM cards; the picture stays a picture."""
+    prompt = (spec.get("story") if use_story else None) or spec["bare"]
+    places = int(spec.get("places") or 0)
+    if spec.get("options"):
+        stones = _option_stones(rng, spec["options"])
     else:
-        prompt = f"{distance} km in {time} hours. What speed in km/h?"
-        value, expl = speed, f"{distance} / {time} = {speed} km/h."
-    return _free_response(
-        prompt,
-        f"The stationmaster's logbook lies open beside the {setting}. {char} "
-        f"must write the figure in before the signal will drop.",
-        expl, value, "logbook_scroll",
-        props=[_prop("clock", 0.32, 0.30, 1.3, f"{time} h"),
-               _prop("signpost", 0.70, 0.34, 1.1, f"{speed} km/h")],
-    )
-
-
-
-def _sdt_catch_the_raft(level, band, rng, char, setting):
-    """PICK-ONE by POSITION. Predict where a drifting raft will be."""
-    # Keep speed * t inside the bank so a landing post always exists.
-    speed = rng.randint(1, max(1, min(3, _scale(level, 1, 3))))
-    t = rng.randint(2, _scale(level, 3, 5))
-    while speed * t > 10:
-        t -= 1
-    drift = speed * t
-    posts = min(12, drift + 1 + rng.randint(0, 2))
-    start = rng.randint(0, posts - 1 - drift)
-    landing = start + drift
-
-    stones = []
-    for i in range(posts):
-        s = _stone(i, str(i), i, i == landing, tint="sky")
-        s["x_pct"] = round(0.08 + 0.84 * (i / (posts - 1)), 4)
-        s["y_pct"] = 0.78
-        stones.append(s)
-
-    ch = _base(
-        "single_choice", "set",
-        f"Raft drifts {speed} posts a beat. Where after {t}?",
-        f"The raft slipped loose at post {start} and drifts down the {setting}. "
-        f"{char} must be standing where it arrives!",
-        f"{start} + {speed} x {t} = {landing}. Stand at post {landing}.",
-        stones, 1, "catch_the_raft", simulate="raft_drift",
-    )
-    ch["props"] = [_prop("raft", 0.08 + 0.84 * (start / (posts - 1)), 0.62, 1.2, f"post {start}")]
-    ch["props"] += [_prop("fence_post", s["x_pct"], 0.70, 0.7, str(i))
-                    for i, s in enumerate(stones)]
-    ch["play_area"] = {"top_pct": 0.72, "bottom_pct": 0.88}
+        value = spec["value"]
+        if places:
+            unit_mul = 10 ** places
+            scaled = int(round(value * unit_mul))
+            stones = _choice_stones(
+                rng, scaled, spec.get("spread") or max(3, abs(scaled) // 6 + 2),
+                4, formatter=lambda v: f"{v / unit_mul:.{places}f}", band=band)
+        else:
+            iv = int(round(value))
+            stones = _choice_stones(
+                rng, iv, spec.get("spread") or max(2, abs(iv) // 6 + 2),
+                4, band=band)
+    ch = _base("single_choice", "set", prompt,
+               _spec_narrative(spec, char, setting), spec["expl"],
+               stones, 1, archetype)
+    ch["props"] = list(spec.get("props") or [])
     return ch
 
 
-def _sdt_clock_run(level, band, rng, char, setting):
-    speed = rng.randint(2, _scale(level, 5, 15))
-    time = rng.randint(2, _scale(level, 4, 12))
-    distance = speed * time
-    mode = rng.choice(["distance", "time", "speed"]) if level >= 3 else "distance"
-
-    if mode == "distance":
-        prompt = f"Running {speed} mph for {time} hours. How far?"
-        correct, expl = distance, f"{speed} x {time} = {distance} miles."
-    elif mode == "time":
-        prompt = f"{distance} miles at {speed} mph. How many hours?"
-        correct, expl = time, f"{distance} / {speed} = {time} hours."
-    else:
-        prompt = f"{distance} miles in {time} hours. What speed?"
-        correct, expl = speed, f"{distance} / {time} = {speed} mph."
-
-    ch = _base(
-        "single_choice", "set", prompt,
-        f"{char} is racing the sunset across the {setting}. Work it out and stand on the answer!",
-        expl,
-        _choice_stones(rng, correct, max(2, correct // 5 + 2), 4, band=band),
-        1, "clock_run",
-    )
-    ch["props"] = [_prop("clock", 0.5, 0.28, 1.4, f"{time} h"),
-                   _prop("signpost", 0.80, 0.34, 1.1, f"{speed} mph")]
-    return ch
+def _as_type(spec, band, rng, char, setting, archetype):
+    """FREE RESPONSE. Typed, graded against answer_value with a tolerance."""
+    return _free_response(
+        spec["bare"], _spec_narrative(spec, char, setting), spec["expl"],
+        spec["value"], archetype,
+        places=int(spec.get("places") or 0), unit=spec.get("unit") or "",
+        props=list(spec.get("props") or []),
+        form=spec.get("form"), answer_text=spec.get("answer_text"))
 
 
-# ================================================= COUNTING & COMPARING
+def _make_generator(concept, fn, presentation):
+    """Bind one concept generator to one presentation."""
+    name = f"{concept}_{presentation}"
+
+    def gen(level, band, rng, char, setting):
+        spec = fn(level, band, rng, char, setting)
+        if presentation == "type":
+            return _as_type(spec, band, rng, char, setting, name)
+        return _as_pick(spec, band, rng, char, setting, name,
+                        use_story=(presentation == "story"))
+    gen.__name__ = f"_gen_{name}"
+    gen.__doc__ = f"{presentation} presentation of the {concept} concept."
+    return gen
+
+
+# =============================================================== THE REGISTRY
 #
-# Grade-1 material from the team's bank: cardinality, successors and
-# comparison. Every archetype below still requires a judgement about
-# quantity - none of them is "tap the thing that looks different".
+# (concept, topic, generator, presentations). Bands come from CONCEPT_GRADES
+# via `concept_bands`, intersected with the bands that offer the topic -
+# nobody hand-maintains a band list any more, which is exactly how
+# "shape_door" survived in the 9-10 band for so long.
+#
+#   "pick"   multiple choice, bare computation      ("4.24 + 0.59 = ?")
+#   "story"  multiple choice, word problem          ("3 red and 4 blue...")
+#   "type"   free response, bare computation        (never for ages 4-6)
 
-def _c_count_the_lanterns(level, band, rng, char, setting):
-    """COUNT-OUT. One stone for every lantern hanging in the scene.
+_CONCEPT_SPECS: tuple[tuple, ...] = (
+    # counting & comparing
+    ("count_next", "counting_and_comparing", _k_count_next, ("pick", "type")),
+    ("compare_size", "counting_and_comparing", _k_compare_size, ("pick", "type")),
+    # addition
+    ("add_2", "addition", _k_add_2, ("pick", "story", "type")),
+    ("add_3", "addition", _k_add_3, ("pick", "story", "type")),
+    ("add_sub_chain", "addition", _k_add_sub_chain, ("pick", "type")),
+    # subtraction
+    ("sub_2", "subtraction", _k_sub_2, ("pick", "story", "type")),
+    ("add_sub_chain", "subtraction", _k_add_sub_chain, ("pick", "type")),
+    # time & money
+    ("coin_total", "time_and_money", _k_coin_total, ("pick", "type")),
+    ("money_add_cents", "time_and_money", _k_money_add_cents, ("pick", "type")),
+    ("clock_add_hours", "time_and_money", _k_clock_add_hours, ("pick", "type")),
+    # multiplication (and division, which has no separate topic)
+    ("mul_2", "multiplication", _k_mul_2, ("pick", "story", "type")),
+    ("div_exact", "multiplication", _k_div_exact, ("pick", "story", "type")),
+    ("div_remainder", "multiplication", _k_div_remainder, ("pick", "type")),
+    # fractions
+    ("frac_of_whole", "fractions", _k_frac_of_whole, ("pick", "type")),
+    ("frac_add_same", "fractions", _k_frac_add_same, ("pick", "type")),
+    ("frac_add_unlike", "fractions", _k_frac_add_unlike, ("pick", "type")),
+    ("frac_multiply", "fractions", _k_frac_multiply, ("pick", "type")),
+    ("frac_divide", "fractions", _k_frac_divide, ("pick", "type")),
+    ("frac_simplify", "fractions", _k_frac_simplify, ("pick", "type")),
+    ("frac_halves", "fractions", _k_frac_halves, ("pick", "type")),
+    ("frac_remaining", "fractions", _k_frac_remaining, ("pick", "type")),
+    # decimals
+    ("dec_add", "decimals", _k_dec_add, ("pick", "type")),
+    ("dec_sub", "decimals", _k_dec_sub, ("pick", "type")),
+    ("dec_mul", "decimals", _k_dec_mul, ("pick", "type")),
+    # geometry
+    ("shape_sides", "geometry", _k_shape_sides, ("pick", "type")),
+    ("shape_sides_total", "geometry", _k_shape_sides_total, ("pick", "type")),
+    ("solid_faces", "geometry", _k_solid_faces, ("pick", "type")),
+    ("shape_id", "geometry", _k_shape_id, ("pick",)),
+    ("square_perimeter", "geometry", _k_square_perimeter, ("pick", "type")),
+    ("rect_perimeter", "geometry", _k_rect_perimeter, ("pick", "type")),
+    ("rect_area", "geometry", _k_rect_area, ("pick", "type")),
+    ("rect_side_from_perimeter", "geometry", _k_rect_side_from_perimeter, ("pick", "type")),
+    ("square_side_from_area", "geometry", _k_square_side_from_area, ("pick", "type")),
+    ("triangle_area", "geometry", _k_triangle_area, ("pick", "type")),
+    ("box_volume", "geometry", _k_box_volume, ("pick", "type")),
+    ("triangle_angle_sum", "geometry", _k_triangle_angle_sum, ("pick", "type")),
+    # algebra
+    ("missing_addend", "algebra", _k_missing_addend, ("pick", "type")),
+    ("missing_factor", "algebra", _k_missing_factor, ("pick", "type")),
+    ("two_step_linear", "algebra", _k_two_step_linear, ("pick", "type")),
+    # speed / distance / time
+    ("sdt_distance", "speed_distance_time", _k_sdt_distance, ("pick", "type")),
+    ("sdt_time", "speed_distance_time", _k_sdt_time, ("pick", "type")),
+    ("sdt_speed", "speed_distance_time", _k_sdt_speed, ("pick", "type")),
+)
 
-    One-to-one correspondence IS the grade-1 skill. The pile deliberately
-    holds more stones than there are lanterns.
+# The single visual mechanic that survived the cull, registered by hand
+# because it is not a (concept, presentation) pair - see _k_frac_sandbars.
+_HANDMADE = (
+    ("frac_sandbars", "fractions", ("23",), _k_frac_sandbars, "frac_of_whole"),
+)
+
+# Below this many archetypes a (topic, band) cell is unplayable, so the gate
+# is relaxed for it - by at most one grade in EITHER direction, and only for
+# that cell. In practice this fires for exactly one cell: time_and_money for
+# ages 4-6, where the bank's only money rows are grade 2 but its easiest ones
+# ("5 cents and find 5 more") are plainly fine for a five-year-old. It is
+# reported in RELAXED_CELLS so the compromise stays visible in /api/health
+# rather than turning into folklore.
+MIN_ARCHETYPES_PER_CELL = 2
+RELAXED_REACH_GRADES = 1
+RELAXED_CELLS: list[tuple[str, str]] = []
+
+_ARCHETYPES: dict[str, list[tuple[str, tuple[str, ...], object]]] = {
+    t: [] for t in TOPICS}
+ARCHETYPE_CONCEPT: dict[str, str] = {}
+ARCHETYPE_TOPIC: dict[str, str] = {}
+NON_READING_ARCHETYPES: set[str] = set()
+FREE_RESPONSE_ARCHETYPES: set[str] = set()
+GROUP_ARCHETYPES: set[str] = {"frac_sandbars"}
+
+
+def _register(name, topic, bands, fn, concept, presentation):
+    bands = tuple(b for b in ("k1", "23", "45") if b in bands)
+    if not bands:
+        return
+    _ARCHETYPES[topic].append((name, bands, fn))
+    ARCHETYPE_CONCEPT[name] = concept
+    ARCHETYPE_TOPIC[name] = topic
+    if presentation == "type":
+        FREE_RESPONSE_ARCHETYPES.add(name)
+    elif "k1" in bands:
+        # Every k1 answer card is pips, a drawn shape or a pip pile - never a
+        # word. The k1 generators above are range-limited to guarantee it and
+        # test_engine re-checks every one of them.
+        NON_READING_ARCHETYPES.add(name)
+
+
+def _build_registry():
+    for concept, topic, fn, presentations in _CONCEPT_SPECS:
+        allowed = set(concept_bands(concept)) & set(TOPIC_BANDS.get(topic, ()))
+        for presentation in presentations:
+            bands = allowed - ({"k1"} if presentation == "type" else set())
+            _register(f"{concept}_{presentation}", topic, bands,
+                      _make_generator(concept, fn, presentation),
+                      concept, presentation)
+    for name, topic, bands, fn, concept in _HANDMADE:
+        _register(name, topic, set(bands) & set(TOPIC_BANDS.get(topic, ())),
+                  fn, concept, "group")
+
+    # --- the relaxation valve -------------------------------------------
+    for topic, bands in TOPIC_BANDS.items():
+        for band in bands:
+            if len([1 for _n, bs, _f in _ARCHETYPES[topic] if band in bs]) \
+                    >= MIN_ARCHETYPES_PER_CELL:
+                continue
+            RELAXED_CELLS.append((topic, band))
+            for concept, t, fn, presentations in _CONCEPT_SPECS:
+                if t != topic or band not in TOPIC_BANDS.get(topic, ()):
+                    continue
+                grades = CONCEPT_GRADES.get(concept) or ()
+                # The relaxation reaches at most ONE grade in either
+                # direction. A five-year-old must never be handed a grade-5
+                # concept just to keep a menu entry alive - the sole point of
+                # this valve is the grade-2/band-k1 money gap.
+                if not grades:
+                    continue
+                if min(grades) > BAND_GRADES[band][1] + RELAXED_REACH_GRADES:
+                    continue
+                if concept in CONCEPT_BAND_OVERRIDE:
+                    continue                 # a product decision, not a gap
+                for presentation in presentations:
+                    if presentation == "type" and band == "k1":
+                        continue
+                    name = f"{concept}_{presentation}"
+                    existing = next((i for i, (n, _b, _f) in
+                                     enumerate(_ARCHETYPES[topic]) if n == name), None)
+                    if existing is None:
+                        _register(name, topic, {band},
+                                  _make_generator(concept, fn, presentation),
+                                  concept, presentation)
+                    else:
+                        n, bs, f = _ARCHETYPES[topic][existing]
+                        if band not in bs:
+                            merged = tuple(b for b in ("k1", "23", "45")
+                                           if b in set(bs) | {band})
+                            _ARCHETYPES[topic][existing] = (n, merged, f)
+                            if band == "k1" and name not in FREE_RESPONSE_ARCHETYPES:
+                                NON_READING_ARCHETYPES.add(name)
+
+    for topic, entries in _ARCHETYPES.items():
+        ARCHETYPE_INDEX[topic] = [n for n, _b, _f in entries]
+
+
+_build_registry()
+
+
+def archetypes_for(topic: str, band: str) -> list[str]:
+    return [nm for nm, bands, _f in _ARCHETYPES.get(topic, []) if band in bands]
+
+
+def playable_archetypes(topic: str, band: str) -> list[str]:
+    """What the game may CHOOSE for this cell.
+
+    Same as `archetypes_for` except that ages 4-6 only ever get archetypes
+    whose answer cards carry no words. `archetypes_for` stays unfiltered so
+    that an explicit request (and the test sweep) can still reach every
+    generator.
     """
-    cap = count_out_cap(band)
-    n = rng.randint(2, max(3, min(cap, _scale(level, 4, cap))))
-    props = _cluster("lantern", n, 0.5, 0.30, "lit", 0.75, cols=6, step_x=0.075)
-    return _count_out(
-        "Take one stone for each lantern above.",
-        f"{char} counts the lanterns strung over the {setting}. The cairn "
-        f"holds plenty of stones - take exactly one for every lantern.",
-        f"There are {n} lanterns, so {n} stones.",
-        n, "count_the_lanterns", band, rng, tint="lemon", props=props,
-    )
+    names = archetypes_for(topic, band)
+    if band != "k1":
+        return names
+    readable = [n for n in names if n in NON_READING_ARCHETYPES]
+    return readable or names
 
 
-def _c_biggest_pile(level, band, rng, char, setting):
-    """PICK-ONE. Which pile is biggest - three of them, so no coin-flip."""
-    if band == "k1":
-        hi = max(4, min(K1_DOTS_MAX, _scale(level, 5, K1_DOTS_MAX)))
-        vals = rng.sample(range(1, hi + 1), 3)
-    else:
-        hi = max(12, _cal_scale(level, 30, 400))
-        vals = rng.sample(range(2, max(6, hi)), 3)
-    biggest = max(vals)
-    mode = "biggest" if (level <= 2 or rng.random() < 0.5) else "smallest"
-    want = biggest if mode == "biggest" else min(vals)
-
-    stones = []
-    for i, v in enumerate(vals):
-        dots = v if (band == "k1" and v <= K1_DOTS_MAX) else None
-        label = "" if band == "k1" else str(v)
-        stones.append(_stone(i, label, v, v == want, dots=dots, tint="sage"))
-    _lay_row(rng, stones, 0.62, 0.74)
-
-    return _base(
-        "single_choice", "set",
-        f"Which pile is the {mode}?",
-        f"Three little heaps sit on the path beside the {setting}. {char} may "
-        f"only carry one of them.",
-        f"{', '.join(str(v) for v in sorted(vals))} - the {mode} is {want}.",
-        stones, 1, "biggest_pile",
-    )
+# Where each school grade sits on the 13-rung ladder, used to give every
+# CONCEPT a rung of its own. Without this, level 5 was as likely to roll
+# "how many sides do 2 triangles have" as it was a perimeter - the level
+# controlled the NUMBERS but not which idea got asked about.
+_GRADE_RUNG = {1: 3, 2: 6, 3: 8, 4: 10, 5: 12}
 
 
-def _c_next_in_line(level, band, rng, char, setting):
-    """PICK-ONE. Successor, predecessor, or the next step of a skip-count."""
-    if band == "k1":
-        step = 1
-        start = rng.randint(1, max(2, min(K1_DOTS_MAX - 2, _scale(level, 4, 12))))
-    else:
-        step = rng.choice([1, 2, 5, 10]) if level >= 3 else rng.choice([1, 2])
-        start = rng.randint(2, max(3, _cal_scale(level, 20, 200)))
-    back = level >= 4 and band != "k1"
-    want = start - step if back else start + step
-    if want < 1:
-        back, want = False, start + step
-
-    if step == 1:
-        prompt = f"What number comes {'before' if back else 'after'} {start}?"
-        expl = f"{start} {'-' if back else '+'} 1 = {want}."
-    else:
-        prompt = f"Count {'back' if back else 'on'} by {step} from {start}."
-        expl = f"{start} {'-' if back else '+'} {step} = {want}."
-
-    return _base(
-        "single_choice", "set", prompt,
-        f"A row of numbered stones runs along the {setting}, and one of them "
-        f"is the next place {char} must stand.",
-        expl,
-        _choice_stones(rng, want, max(2, step + 2), 4, band=band),
-        1, "next_in_line",
-    )
+def concept_rung(concept: str) -> float:
+    """The rung a concept naturally belongs on, from the grades it lives in."""
+    grades = CONCEPT_GRADES.get(concept) or ()
+    if not grades:
+        return 7.0
+    return sum(_GRADE_RUNG.get(int(g), 7) for g in grades) / float(len(grades))
 
 
-def _c_counting_scroll(level, band, rng, char, setting):
-    """TYPE-IT. Ten (or a hundred) more than a number, written down."""
-    jump = rng.choice([10, 100]) if level >= 4 else 10
-    start = rng.randint(5, max(6, _cal_scale(level, 60, 500)))
-    more = rng.random() < 0.5 or start <= jump
-    want = start + jump if more else start - jump
-    return _free_response(
-        f"What is {jump} {'more' if more else 'less'} than {start}?",
-        f"A tally post stands where the path forks past the {setting}. {char} "
-        f"must chalk the right number onto it.",
-        f"{start} {'+' if more else '-'} {jump} = {want}.",
-        want, "counting_scroll",
-        props=[_prop("signpost", 0.5, 0.32, 1.4, f"{start}?")],
-    )
+def _concept_weights(names, band, level):
+    """Prefer archetypes whose CONCEPT matches the rung we are playing at.
+
+    Soft, not absolute: an easier concept at level 5 is still reachable (it
+    keeps a long quest from repeating itself), just much less likely.
+    """
+    here = difficulty_rung(band, level)
+    return [1.0 / (1.0 + abs(concept_rung(ARCHETYPE_CONCEPT.get(n, "")) - here) ** 2.2)
+            for n in names]
 
 
-# ======================================================== TIME & MONEY
-
-_COIN_VALUE = {"penny": 1, "nickel": 5, "dime": 10, "quarter": 25}
-
-
-def _t_coin_purse(level, band, rng, char, setting):
-    """PICK-ONE. Count a handful of mixed coins."""
-    if band == "k1":
-        # Every option must stay countable as pips (K1_DOTS_MAX), so the
-        # biggest purse a 5-year-old can be handed is 3 pennies + 2 nickels.
-        counts = {"penny": rng.randint(1, 3)}
-        if level >= 3:
-            counts["nickel"] = rng.randint(1, 2)
-    else:
-        kinds = rng.sample(["penny", "nickel", "dime", "quarter"],
-                           2 if level <= 3 else 3)
-        counts = {k: rng.randint(1, 5) for k in kinds}
-    total = sum(_COIN_VALUE[k] * n for k, n in counts.items())
-    bits = " and ".join(f"{n} {k}{'s' if n != 1 else ''}" for k, n in counts.items())
-
-    props = []
-    for i, (k, n) in enumerate(counts.items()):
-        props += _cluster("gem", n, 0.28 + i * 0.22, 0.34, k, 0.7, cols=3)
-
-    ch = _base(
-        "single_choice", "set",
-        f"{bits}. How many cents?",
-        f"{char} tips out a purse at the little stall by the {setting}. "
-        f"Count it up before the stall-keeper loses patience.",
-        " + ".join(f"{n} x {_COIN_VALUE[k]}" for k, n in counts.items())
-        + f" = {total} cents.",
-        _choice_stones(rng, total, max(3, total // 4 + 2), 4, band=band),
-        1, "coin_purse",
-    )
-    ch["props"] = props
-    return ch
-
-
-def _t_market_stall(level, band, rng, char, setting):
-    """COUNT-OUT. Pay for n buns at c cents each, one penny at a time."""
-    cap = count_out_cap(band)
-    price = rng.randint(2, max(2, min(4, _scale(level, 2, 4))))
-    n = rng.randint(2, max(2, min(cap // price, _scale(level, 2, 5))))
-    total = price * n
-
-    return _count_out(
-        f"Buns cost {price} cents. Buy {n}. Take that many pennies.",
-        f"The bun stall by the {setting} will not give change. {char} must "
-        f"count out exactly the right money from a jar holding far more.",
-        f"{n} x {price} = {total} cents.",
-        total, "market_stall", band, rng, tint="lemon",
-        props=[_prop("basket", 0.08, 0.62, 1.2, "buns"),
-               _prop("signpost", 0.92, 0.55, 1.0, f"{price}c")],
-    )
-
-
-def _t_money_scroll(level, band, rng, char, setting):
-    """TYPE-IT. Money totals or change, typed into the shopkeeper's slate."""
-    if rng.random() < 0.5 or level <= 2:
-        kinds = rng.sample(["nickel", "dime", "quarter"], 2)
-        counts = {k: rng.randint(1, 6) for k in kinds}
-        want = sum(_COIN_VALUE[k] * v for k, v in counts.items())
-        bits = " and ".join(f"{v} {k}{'s' if v != 1 else ''}" for k, v in counts.items())
-        prompt = f"{bits}. How many cents?"
-        expl = " + ".join(f"{v} x {_COIN_VALUE[k]}" for k, v in counts.items()) + f" = {want}."
-    else:
-        paid = rng.choice([25, 50, 100])
-        cost = rng.randint(5, paid - 5)
-        want = paid - cost
-        prompt = f"You pay {paid} cents for a {cost} cent bun. Change?"
-        expl = f"{paid} - {cost} = {want} cents."
-    return _free_response(
-        prompt,
-        f"The shopkeeper's slate hangs by the stall at the {setting}. {char} "
-        f"chalks the answer and the little door swings open.",
-        expl, want, "money_scroll", unit="c",
-        props=[_prop("npc", 0.72, 0.40, 1.2, "shopkeeper"),
-               _prop("sack", 0.28, 0.40, 1.1, "purse")],
-    )
+def concepts_for(topic: str, band: str) -> list[str]:
+    """The distinct CONCEPTS playable in a cell - what the bank actually gated."""
+    seen = []
+    for name in archetypes_for(topic, band):
+        c = ARCHETYPE_CONCEPT.get(name)
+        if c and c not in seen:
+            seen.append(c)
+    return seen
 
 
 # ================================================================ FINALE
@@ -1616,6 +1840,7 @@ def generate_finale(topic, band, level, carried, character_name=None,
     lead = (f"Everything {char} gathered on the way here comes down to this "
             f"one last gate: {haul}.")
 
+    unit = ""
     if topic == "addition":
         value = a + b
         prompt = f"{pair}. How many altogether?"
@@ -1623,7 +1848,7 @@ def generate_finale(topic, band, level, carried, character_name=None,
     elif topic == "subtraction":
         take = rng.randint(1, max(1, total - 1))
         value = total - take
-        prompt = f"You carry {total}. The gate keeps {take}. How many left?"
+        prompt = f"You carry {total} {a_name}. The gate keeps {take}. Left?"
         expl = f"{total} - {take} = {value}."
     elif topic == "multiplication":
         m = rng.randint(2, 5)
@@ -1634,33 +1859,37 @@ def generate_finale(topic, band, level, carried, character_name=None,
         d = rng.choice([2, 3, 4])
         used, share = _divisor_split(total, d)
         value = share
-        prompt = f"Split {used} of your {total} into {d} equal piles."
+        prompt = f"Split {used} {a_name} into {d} equal piles. How many each?"
         expl = f"{used} / {d} = {share} in each pile."
     elif topic == "decimals":
         per = rng.choice([0.25, 0.5, 1.5, 2.5])
         value = round(total * per, 2)
-        prompt = f"Your {total} lanterns hold {per} L each. Total litres?"
+        prompt = f"Your {total} lanterns hold {per} litres each. Total litres?"
         expl = f"{total} x {per} = {value} L."
+        unit = "L"
     elif topic == "geometry":
         value = 2 * (a + b)
-        prompt = f"A plot {a} by {b} paces. How many posts around?"
-        expl = f"2 x ({a} + {b}) = {value} posts."
+        prompt = f"A plot {a} by {b} metres. Perimeter in metres?"
+        expl = f"2 x ({a} + {b}) = {value} metres."
+        unit = "m"
     elif topic == "algebra":
         keep = rng.randint(1, max(1, total - 1))
         value = total - keep
-        prompt = f"? + {keep} = {total}. Find the missing number."
-        expl = f"{total} - {keep} = {value}."
+        prompt = f"x + {keep} = {total}. What is x?"
+        expl = f"x = {total} - {keep} = {value}."
     elif topic == "speed_distance_time":
         hours = rng.randint(2, 5)
         dist, speed = _divisor_split(total, hours)
         value = speed
-        prompt = f"{dist} km in {hours} hours. What is the speed?"
+        prompt = f"{dist} km in {hours} hours. Speed in km/h?"
         expl = f"{dist} / {hours} = {speed} km/h."
+        unit = "km/h"
     elif topic == "time_and_money":
         per = 2 if band == "k1" else rng.choice([2, 5, 10])
         value = total * per
         prompt = f"Your {total} tokens are worth {per} cents each. Total?"
         expl = f"{total} x {per} = {value} cents."
+        unit = "c"
     else:  # counting_and_comparing
         value = a - b if a != b else a + b
         if a != b:
@@ -1680,7 +1909,7 @@ def generate_finale(topic, band, level, carried, character_name=None,
         )
     else:
         ch = _free_response(prompt, lead, expl, value, "final_gate",
-                            places=places, unit="L" if places else "")
+                            places=places, unit=unit)
 
     ch["props"] = [_prop("gate", 0.5, 0.30, 1.6, "final"),
                    _prop("lantern", 0.18, 0.40, 1.2, "last light"),
@@ -1696,112 +1925,6 @@ def generate_finale(topic, band, level, carried, character_name=None,
     return ch
 
 
-# ------------------------------------------------------------- registry
-
-_ARCHETYPES: dict[str, list[tuple[str, tuple[str, ...], object]]] = {
-    "counting_and_comparing": [
-        ("count_the_lanterns", ("k1", "23"), _c_count_the_lanterns),
-        ("biggest_pile", ("k1", "23"), _c_biggest_pile),
-        ("next_in_line", ("k1", "23"), _c_next_in_line),
-        ("counting_scroll", ("23",), _c_counting_scroll),
-    ],
-    "addition": [
-        ("berry_baskets", ("k1", "23", "45"), _a_berry_baskets),
-        ("toll_gate", ("k1", "23", "45"), _a_toll_gate),
-        ("plank_bridge", ("k1", "23", "45"), _a_plank_bridge),
-        ("acorn_count", ("k1", "23", "45"), _a_acorn_count),
-        ("sum_scroll", ("23", "45"), _a_sum_scroll),
-    ],
-    "subtraction": [
-        ("lanterns_out", ("k1", "23", "45"), _s_lanterns_out),
-        ("stones_left", ("k1", "23", "45"), _s_stones_left),
-        ("spend_gems", ("k1", "23", "45"), _s_spend_gems),
-        ("countdown_path", ("23", "45"), _s_countdown_path),
-        ("tally_scroll", ("23", "45"), _s_tally_scroll),
-    ],
-    "time_and_money": [
-        ("coin_purse", ("k1", "23"), _t_coin_purse),
-        ("market_stall", ("k1", "23"), _t_market_stall),
-        ("money_scroll", ("23",), _t_money_scroll),
-    ],
-    "multiplication": [
-        ("orchard_count", ("23", "45"), _m_orchard_count),
-        ("rows_of_lanterns", ("23", "45"), _m_rows_of_lanterns),
-        ("equal_baskets", ("23", "45"), _m_equal_baskets),
-        ("product_scroll", ("23", "45"), _m_product_scroll),
-    ],
-    "fractions": [
-        ("safe_sandbars", ("23", "45"), _f_safe_sandbars),
-        ("fraction_of_berries", ("23", "45"), _f_fraction_of_berries),
-        ("pie_gate", ("23", "45"), _f_pie_gate),
-        ("fraction_scroll", ("23", "45"), _f_fraction_scroll),
-    ],
-    "decimals": [
-        ("number_line_leap", ("45",), _d_number_line_leap),
-        ("rain_gauge", ("45",), _d_rain_gauge),
-        ("measure_rope", ("45",), _d_measure_rope),
-        ("gauge_scroll", ("45",), _d_gauge_scroll),
-    ],
-    "geometry": [
-        ("shape_door", ("k1", "23", "45"), _g_shape_door),
-        ("fence_posts", ("k1", "23", "45"), _g_fence_posts),
-        ("garden_measure", ("23", "45"), _g_garden_measure),
-        ("survey_scroll", ("23", "45"), _g_survey_scroll),
-    ],
-    "algebra": [
-        ("mystery_sacks", ("45",), _al_mystery_sacks),
-        ("balance_bridge", ("45",), _al_balance_bridge),
-        ("balance_scales", ("45",), _al_balance_scales),
-        ("rune_scroll", ("45",), _al_rune_scroll),
-    ],
-    "speed_distance_time": [
-        ("catch_the_raft", ("45",), _sdt_catch_the_raft),
-        ("clock_run", ("45",), _sdt_clock_run),
-        ("mile_count", ("45",), _sdt_mile_count),
-        ("logbook_scroll", ("45",), _sdt_logbook_scroll),
-    ],
-}
-
-# Ages 4-6 must be playable without reading. These archetypes carry no words
-# on the stones (dots, shapes, positions only). Free-response archetypes are
-# NEVER in here - a pre-reader should not be hunting for the 7 key.
-NON_READING_ARCHETYPES = {
-    "berry_baskets", "toll_gate", "plank_bridge", "acorn_count", "lanterns_out",
-    "stones_left", "spend_gems", "shape_door", "fence_posts",
-    "count_the_lanterns", "biggest_pile", "next_in_line",
-    "coin_purse", "market_stall",
-}
-
-# Every archetype that asks for a typed number. app.py grades these against
-# `answer_value`, and `answer_value` never leaves the server.
-FREE_RESPONSE_ARCHETYPES = {
-    "sum_scroll", "tally_scroll", "product_scroll", "fraction_scroll",
-    "gauge_scroll", "survey_scroll", "rune_scroll", "logbook_scroll",
-    "counting_scroll", "money_scroll",
-}
-
-for _t, _lst in _ARCHETYPES.items():
-    ARCHETYPE_INDEX[_t] = [nm for nm, _b, _f in _lst]
-
-
-def archetypes_for(topic: str, band: str) -> list[str]:
-    return [nm for nm, bands, _f in _ARCHETYPES.get(topic, []) if band in bands]
-
-
-def playable_archetypes(topic: str, band: str) -> list[str]:
-    """What the game may CHOOSE for this cell.
-
-    Same as `archetypes_for` except that ages 4-6 only ever get archetypes
-    whose stones carry no words. `archetypes_for` stays unfiltered so that an
-    explicit request (and the test sweep) can still reach every generator.
-    """
-    names = archetypes_for(topic, band)
-    if band != "k1":
-        return names
-    readable = [n for n in names if n in NON_READING_ARCHETYPES]
-    return readable or names
-
-
 # ------------------------------------------------- navigational obstacles
 
 _OBSTACLE_KINDS = ["tree", "fence_post", "rope", "gate"]
@@ -1810,10 +1933,10 @@ _OBSTACLE_KINDS = ["tree", "fence_post", "rope", "gate"]
 def _add_navigation_obstacles(challenge: dict, rng: random.Random, count: int) -> None:
     """Product brief: "more obstacles when the child makes more mistakes."
 
-    Reconciliation: the obstacles are NAVIGATIONAL (scenery to walk around),
-    never extra wrong answers. A struggling child gets a longer, twistier walk
-    but an EASIER sum. Difficulty of the *math* is handled separately, and it
-    moves DOWN on mistakes. See app.py / story_engine.py.
+    Reconciliation: the obstacles are NAVIGATIONAL (scenery to move around),
+    never extra wrong answers. A struggling child gets a longer, twistier
+    journey but an EASIER sum. Difficulty of the *math* is handled separately,
+    and it moves DOWN on mistakes. See app.py / story_engine.py.
     """
     if count <= 0:
         return
@@ -1867,12 +1990,16 @@ def generate_challenge(topic, band, level, character_name=None, objects=None,
         allowed = set(playable_archetypes(topic, band))
         safe = [(nm, fn) for nm, fn in available if nm in allowed] or available
         pool = [(nm, fn) for nm, fn in safe if nm not in set(exclude_archetypes)]
-        chosen = rng.choice(pool or safe)
+        pool = pool or safe
+        # Weighted, not uniform: the LEVEL should decide which idea gets asked
+        # about, not only how big its numbers are. See `_concept_weights`.
+        weights = _concept_weights([nm for nm, _f in pool], band, level)
+        chosen = rng.choices(pool, weights=weights, k=1)[0]
 
-    # Park the cell the generator is about to build so `_cal` can look up the
-    # CSV bank's observed operand range for it. Always cleared, even on error:
-    # a leaked context would calibrate the NEXT challenge against the wrong
-    # topic. See the note beside `_CTX`.
+    # Park the cell the generator is about to build so `_cal` and `_rs` can
+    # look up the CSV bank's observed operand range for it, and so `_rs` knows
+    # which rungs this topic spans. Always cleared, even on error: a leaked
+    # context would calibrate the NEXT challenge against the wrong topic.
     prev = (getattr(_CTX, "topic", None), getattr(_CTX, "band", None),
             getattr(_CTX, "level", None))
     _CTX.topic, _CTX.band, _CTX.level = topic, band, level
@@ -1888,6 +2015,8 @@ def generate_challenge(topic, band, level, character_name=None, objects=None,
     challenge["topic"] = topic
     challenge["band"] = band
     challenge["level"] = level
+    challenge["concept"] = ARCHETYPE_CONCEPT.get(challenge.get("archetype"), "")
+    challenge["difficulty_rung"] = difficulty_rung(band, level)
     challenge["character_name"] = char
     challenge["setting"] = setting
     challenge.setdefault("obstacle_count", 0)
@@ -1919,3 +2048,43 @@ def adapt_level(current_level, was_correct, consecutive_correct, consecutive_wro
     if not was_correct:
         return current_level, "hold_after_slip"
     return current_level, "hold"
+
+
+# -------------------------------------------------------- difficulty table
+#
+# `python3 math_engine.py` prints every topic x band x level 1-5 prompt. This
+# is the artefact the team eyeballs to judge the curve, and the reason the
+# band-relative ladder is checkable by a human rather than only by a test.
+
+def difficulty_table(seed: int = 7, per_cell: int = 1) -> list[dict]:
+    rows = []
+    for topic in TOPICS:
+        for band in TOPIC_BANDS[topic]:
+            for level in range(1, 6):
+                for i in range(per_cell):
+                    ch = generate_challenge(
+                        topic, band, level, "Mochi", ["cat", "river"],
+                        seed=seed + level * 101 + i * 7717)
+                    rows.append({
+                        "topic": topic, "band": band, "level": level,
+                        "rung": ch["difficulty_rung"],
+                        "archetype": ch["archetype"],
+                        "concept": ch.get("concept", ""),
+                        "type": ch["question_type"],
+                        "prompt": ch["prompt"],
+                    })
+    return rows
+
+
+if __name__ == "__main__":                        # pragma: no cover
+    print(f"{'topic':<22}{'band':<5}{'lv':<3}{'rung':<5}"
+          f"{'concept':<26}{'kind':<15}prompt")
+    print("-" * 132)
+    last = None
+    for row in difficulty_table():
+        if last and last != (row["topic"], row["band"]):
+            print()
+        last = (row["topic"], row["band"])
+        kind = "free response" if row["type"] == "free_response" else row["type"]
+        print(f'{row["topic"]:<22}{row["band"]:<5}{row["level"]:<3}'
+              f'{row["rung"]:<5}{row["concept"]:<26}{kind:<15}{row["prompt"]}')

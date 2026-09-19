@@ -60,81 +60,55 @@ FRIENDS = [
 # Which mechanic each archetype plays as. story_engine asks for a MECHANIC;
 # math_engine owns the actual math.
 #
-# "collect" is now COUNT-OUT (take exactly as many as the answer, from a pile
-# that holds more) and "type" is free response. The six touch-and-choose
-# archetypes deleted on 2026-09-19 are gone from here too - see
-# math_engine.DELETED_ARCHETYPES.
+# DERIVED, not hand-written. After the 2026-09-19b rewrite there are only
+# three mechanics left - the questions are straight multiple choice or free
+# response, and the fun lives in the obstacle the answer unlocks. Deriving
+# the table means a new archetype can never be added to math_engine and then
+# silently have no mechanic here (which used to crash `_pick_archetype`).
+#
+#   "pick"    multiple choice, tapped from the answer tray
+#   "type"    free response, typed
+#   "group"   the one surviving visual mechanic (math_engine._k_frac_sandbars)
+#   "finale"  the built-from-your-haul last gate
+
+
+def _mechanic_of(name: str) -> str:
+    if name in math_engine.FREE_RESPONSE_ARCHETYPES:
+        return "type"
+    if name in math_engine.GROUP_ARCHETYPES:
+        return "group"
+    return "pick"
+
+
 MECHANIC_OF = {
-    "berry_baskets": "pick",
-    "plank_bridge": "pick",
-    "lanterns_out": "pick",
-    "spend_gems": "pick",
-    "rows_of_lanterns": "pick",
-    "equal_baskets": "pick",
-    "pie_gate": "pick",
-    "number_line_leap": "pick",
-    "measure_rope": "pick",
-    "shape_door": "pick",
-    "garden_measure": "pick",
-    "mystery_sacks": "pick",
-    "balance_bridge": "pick",
-    "catch_the_raft": "pick",
-    "clock_run": "pick",
-    "biggest_pile": "pick",
-    "next_in_line": "pick",
-    "coin_purse": "pick",
-    "toll_gate": "set",
-    "rain_gauge": "set",
-    "balance_scales": "set",
-    "acorn_count": "collect",
-    "stones_left": "collect",
-    "orchard_count": "collect",
-    "fraction_of_berries": "collect",
-    "fence_posts": "collect",
-    "mile_count": "collect",
-    "count_the_lanterns": "collect",
-    "market_stall": "collect",
-    "countdown_path": "walk",
-    "safe_sandbars": "group",
-    "sum_scroll": "type",
-    "tally_scroll": "type",
-    "product_scroll": "type",
-    "fraction_scroll": "type",
-    "gauge_scroll": "type",
-    "survey_scroll": "type",
-    "rune_scroll": "type",
-    "logbook_scroll": "type",
-    "counting_scroll": "type",
-    "money_scroll": "type",
-    "final_gate": "finale",
+    name: _mechanic_of(name)
+    for names in math_engine.ARCHETYPE_INDEX.values() for name in names
 }
+MECHANIC_OF["final_gate"] = "finale"
 
 # What each archetype is ABOUT. The beat narration names a place and a stake;
 # the noun comes from whatever challenge actually got generated, so the story
-# never promises planks and then hand the child a berry sum.
-ARCHETYPE_SUBJECT = {
-    "berry_baskets": "berries", "acorn_count": "acorns", "toll_gate": "gems",
-    "plank_bridge": "planks", "sum_scroll": "tally marks",
-    "lanterns_out": "lanterns", "stones_left": "stepping stones",
-    "spend_gems": "gems", "countdown_path": "stepping stones",
-    "tally_scroll": "tally marks",
-    "orchard_count": "seeds", "rows_of_lanterns": "lanterns",
-    "equal_baskets": "apples", "product_scroll": "tally marks",
-    "safe_sandbars": "stepping stones", "fraction_of_berries": "berries",
-    "pie_gate": "moon-shards", "fraction_scroll": "moon-shards",
-    "number_line_leap": "lily pads", "rain_gauge": "raindrops",
-    "measure_rope": "rope", "gauge_scroll": "raindrops",
-    "shape_door": "keys", "fence_posts": "fence posts",
-    "garden_measure": "fence posts", "survey_scroll": "fence posts",
-    "mystery_sacks": "gems", "balance_bridge": "gems", "balance_scales": "gems",
-    "rune_scroll": "runes",
-    "catch_the_raft": "raft-marks", "clock_run": "miles",
-    "mile_count": "miles", "logbook_scroll": "miles",
-    "count_the_lanterns": "lanterns", "biggest_pile": "pebbles",
-    "next_in_line": "stepping stones", "counting_scroll": "tally marks",
-    "coin_purse": "coins", "market_stall": "coins", "money_scroll": "coins",
-    "final_gate": "treasures",
+# never promises planks and then hands the child a berry sum. Also derived -
+# one noun per TOPIC, because after the rewrite an archetype's subject is a
+# property of its topic and nothing else.
+TOPIC_SUBJECT = {
+    "counting_and_comparing": "pebbles",
+    "addition": "berries",
+    "subtraction": "lanterns",
+    "time_and_money": "coins",
+    "multiplication": "apples",
+    "fractions": "moon-shards",
+    "decimals": "raindrops",
+    "geometry": "fence posts",
+    "algebra": "runes",
+    "speed_distance_time": "miles",
 }
+
+ARCHETYPE_SUBJECT = {
+    name: TOPIC_SUBJECT.get(topic, "treasures")
+    for topic, names in math_engine.ARCHETYPE_INDEX.items() for name in names
+}
+ARCHETYPE_SUBJECT["final_gate"] = "treasures"
 
 # Subjects collapse onto four carryable slots so the quest can spend later
 # what it gathered earlier, whatever the topic happened to be about.
@@ -149,6 +123,11 @@ SUBJECT_SLOT = {
     "raft-marks": "gems", "coins": "gems", "tally marks": "gems",
     "treasures": "gems",
 }
+
+# Every subject a topic can produce must land in one of the four carry slots,
+# or a quest would gather something it can never spend.
+assert set(TOPIC_SUBJECT.values()) <= set(SUBJECT_SLOT), \
+    "a topic subject has no carry slot"
 
 
 def subject_of(challenge: dict) -> str:
@@ -415,7 +394,7 @@ GENERIC_TRAIL = {
 
 TEMPLATES = [RIVER_CROSSING, LANTERN_FESTIVAL, GENERIC_TRAIL]
 
-# ====================================== V3: the journey skeleton + traversal
+# ====================================== the journey skeleton
 #
 # The AI writes the STORY. This module keeps the MACHINE. Every entry below
 # is the mechanical half of one stop - difficulty delta, which mechanic,
@@ -427,18 +406,19 @@ TEMPLATES = [RIVER_CROSSING, LANTERN_FESTIVAL, GENERIC_TRAIL]
 # resolution) behaves the same on both paths and the offline game never
 # regresses.
 #
-# V3 adds two things the playtest demanded:
+# Two things the playtest demanded:
 #
-#   TRAVERSAL   Every stop is reached by MOVING. `traversal` describes a short
-#               keyboard journey - hop four stones, climb three ledges - that
-#               the child plays with the arrow keys BEFORE the question
-#               appears. Questions no longer arrive back to back; they are
-#               what you find at the end of a walk.
+#   OBSTACLES   Every stop ENDS at something the hero cannot pass, and the
+#               question is the key that unlocks it. Which obstacle each stop
+#               gets is NOT pinned here - `assign_obstacles` hands them out
+#               across the whole arc so the drama escalates and the same one
+#               never appears twice running. (V3 pinned a "traversal" per
+#               slot and played it BEFORE the question; that read as
+#               busywork and is gone.)
 #
-#   INTERLUDES  Stops with `no_question: True`. Pure story: push the log,
-#               open the gate, wade the reeds. No arithmetic at all. These
-#               exist because "the story is told through a series of
-#               questions" was the single loudest complaint.
+#   INTERLUDES  Stops with `no_question: True`. Pure story: no arithmetic at
+#               all, just the crossing. These exist because "the story is
+#               told through a series of questions" was a loud complaint.
 #
 # `min_complexity` gates a stop on how hard the quest should be (see
 # `complexity_for`), which is how a speed/distance/time quest for a
@@ -449,9 +429,8 @@ FULL_SKELETON = [
     {
         "slot": 0,
         "key": "setup", "kind": "setup", "camera": "wide", "tint": "day",
-        "level_delta": -1, "mechanic": ["pick", "collect"],
+        "level_delta": -1, "mechanic": ["pick"],
         "min_complexity": 0,
-        "traversal": {"kind": "path", "verb": "Set off", "noun": "waymark"},
         "fallback_title": "Setting Out",
         "role": ("SETTING OUT. The very first step of the journey, at the starting "
                  "point, with the destination visible far away. Easy and "
@@ -462,7 +441,6 @@ FULL_SKELETON = [
         "key": "crossing", "kind": "interlude", "camera": "left_bank", "tint": "day",
         "level_delta": 0, "mechanic": [], "no_question": True,
         "min_complexity": 0,
-        "traversal": {"kind": "stones", "verb": "Hop", "noun": "stepping stone"},
         "fallback_title": "The Stepping Stones",
         "role": ("A WORDLESS CROSSING. No puzzle here at all - the traveller "
                  "simply has to get across something: stepping stones, a "
@@ -471,9 +449,8 @@ FULL_SKELETON = [
     {
         "slot": 2,
         "key": "gather1", "kind": "gather", "camera": "left_bank", "tint": "day",
-        "level_delta": 0, "mechanic": ["collect", "set", "pick"], "gain": "berries",
+        "level_delta": 0, "mechanic": ["pick", "group"], "gain": "berries",
         "min_complexity": 0,
-        "traversal": {"kind": "reeds", "verb": "Wade", "noun": "reed bank"},
         "fallback_title": "The Gathering Place",
         "role": ("GATHER. A stop a little way along where something useful is "
                  "collected - it will be needed further on. Mention picking things up."),
@@ -481,9 +458,8 @@ FULL_SKELETON = [
     {
         "slot": 3,
         "key": "gather2", "kind": "gather", "camera": "left_bank", "tint": "day",
-        "level_delta": 0, "mechanic": ["pick", "set", "type"], "gain": "planks",
+        "level_delta": 0, "mechanic": ["type", "pick"], "gain": "planks",
         "optional": True, "min_complexity": 2,
-        "traversal": {"kind": "path", "verb": "Follow", "noun": "cairn"},
         "fallback_title": "The Second Find",
         "role": ("GATHER again, somewhere different and further on - a second kind "
                  "of useful thing, materials rather than food."),
@@ -491,9 +467,8 @@ FULL_SKELETON = [
     {
         "slot": 4,
         "key": "obstacle", "kind": "obstacle", "camera": "midstream", "tint": "day",
-        "level_delta": 0, "mechanic": ["set", "walk", "pick", "type"],
+        "level_delta": 0, "mechanic": ["type", "pick"],
         "spend": "planks", "min_complexity": 0,
-        "traversal": {"kind": "log", "verb": "Push", "noun": "fallen log"},
         "fallback_title": "The Way Is Blocked",
         "role": ("OBSTACLE, roughly halfway. Something blocks the route to the "
                  "destination and the gathered materials get USED UP getting past it."),
@@ -503,7 +478,6 @@ FULL_SKELETON = [
         "key": "ledge", "kind": "interlude", "camera": "midstream", "tint": "dusk",
         "level_delta": 0, "mechanic": [], "no_question": True,
         "min_complexity": 3,
-        "traversal": {"kind": "ledge", "verb": "Climb", "noun": "ledge"},
         "fallback_title": "The Cliff Ledges",
         "role": ("ANOTHER WORDLESS STRETCH, harder than the first and later in "
                  "the journey: a climb, a scramble, a narrow ledge. Still no "
@@ -512,9 +486,8 @@ FULL_SKELETON = [
     {
         "slot": 6,
         "key": "setback", "kind": "setback", "camera": "midstream", "tint": "dusk",
-        "level_delta": -1, "mechanic": ["pick", "collect"], "gain": "lanterns",
+        "level_delta": -1, "mechanic": ["pick"], "gain": "lanterns",
         "optional": True, "min_complexity": 1,
-        "traversal": {"kind": "reeds", "verb": "Push through", "noun": "thicket"},
         "fallback_title": "The Light Goes",
         "role": ("SETBACK. The weather or the light turns and the destination is "
                  "briefly hard to see. Tense but never frightening, and end on hope."),
@@ -522,9 +495,8 @@ FULL_SKELETON = [
     {
         "slot": 7,
         "key": "climax", "kind": "climax", "camera": "high", "tint": "night",
-        "level_delta": 1, "mechanic": ["group", "collect", "walk", "pick", "type"],
+        "level_delta": 1, "mechanic": ["type", "group", "pick"],
         "finale": True, "min_complexity": 0,
-        "traversal": {"kind": "gate", "verb": "Open", "noun": "gate latch"},
         "fallback_title": "The Last Hard Part",
         "role": ("CLIMAX. The final hard stretch, right at the foot of the "
                  "destination. The biggest challenge of the whole journey, and "
@@ -533,9 +505,8 @@ FULL_SKELETON = [
     {
         "slot": 8,
         "key": "arrival", "kind": "resolution", "camera": "far_bank", "tint": "night",
-        "level_delta": -2, "mechanic": ["pick", "collect"], "no_fail": True,
+        "level_delta": -2, "mechanic": ["pick"], "no_fail": True,
         "min_complexity": 0,
-        "traversal": {"kind": "path", "verb": "Walk", "noun": "last step"},
         "fallback_title": "Arriving",
         "role": ("ARRIVAL. They REACH the destination. Gentle, joyful, and "
                  "impossible to get wrong - say so warmly."),
@@ -598,11 +569,10 @@ def register_for(complexity: int) -> str:
 
 
 def traversal_steps(complexity: int, is_interlude: bool) -> int:
-    """How far the child walks before the next thing happens.
+    """DEPRECATED. Obstacle length now comes from the obstacle itself.
 
-    Short enough that a four-year-old does not get bored on the way to the
-    question; long enough at the top end that a nine-year-old feels like
-    they are actually travelling.
+    Kept because it is a clean way to express "how much crossing should this
+    quest have", and `obstacle_for` still nudges by complexity.
     """
     base = 2 + complexity // 2
     if is_interlude:
@@ -615,7 +585,9 @@ def build_skeleton(band: str, topic: str) -> list[dict]:
 
     Returns a subsequence of FULL_SKELETON - same dicts, same order, same
     `slot` numbers - so prose written against the full skeleton still lines
-    up however many stops got dropped.
+    up however many stops got dropped. Obstacles are NOT assigned here: they
+    depend on where a stop lands in the FINAL arc, which is only known once
+    the optional stops have been dropped. See `assign_obstacles`.
     """
     c = complexity_for(band, topic)
     out = []
@@ -623,18 +595,16 @@ def build_skeleton(band: str, topic: str) -> list[dict]:
         if c < skel.get("min_complexity", 0):
             continue
         beat = {k: v for k, v in skel.items()
-                if k not in ("role", "fallback_title", "traversal")}
-        tv = dict(skel.get("traversal") or {})
-        tv["steps"] = traversal_steps(c, bool(skel.get("no_question")))
-        beat["traversal"] = tv
+                if k not in ("role", "fallback_title")}
         beat["complexity"] = c
         out.append(beat)
     return out
 
 
-# Prose for the interlude stops, in both vocabulary registers. These are the
-# beats with NO MATHS IN THEM - the whole point is that the child does
-# something with their hands and the story moves anyway.
+# Prose for the interlude stops - the beats with NO MATHS IN THEM. The
+# obstacle supplies its own locked/cleared lines; this is the story wrapper
+# around them, in the two vocabulary registers. Keyed by OBSTACLE kind now,
+# with a generic pair so a kind without bespoke prose still reads well.
 INTERLUDE_PROSE = {
     ("stones", "simple"): {
         "title": "The Stepping Stones",
@@ -648,41 +618,237 @@ INTERLUDE_PROSE = {
         "on_success": ("The last stone wobbles, holds, and {char} is across - "
                        "breathing hard, entirely pleased."),
     },
-    ("ledge", "simple"): {
+    ("ledges", "simple"): {
         "title": "The Ledges",
         "intro": "Little shelves of rock go up like stairs. Climb them, {char}!",
         "on_success": "Up and up, and there {char} is at the top.",
     },
-    ("ledge", "rich"): {
+    ("ledges", "rich"): {
         "title": "The Cliff Ledges",
         "intro": ("The cliff is not smooth after all - it is a staircase of narrow "
                   "ledges, each one a stretch above the last. {char} reaches up."),
         "on_success": ("{char} hauls over the final lip and lies flat for a "
                        "moment, looking at how far down the world has gone."),
     },
-    ("log", "simple"): {
-        "title": "The Fallen Log",
-        "intro": "A big log lies across the path. Push it, {char}!",
-        "on_success": "The log rolls away. The path is open again.",
+    ("hurdle", "simple"): {
+        "title": "The Fallen Logs",
+        "intro": "Big logs lie across the path. Jump them, {char}!",
+        "on_success": "Over they go, one after another. Nothing to it.",
     },
-    ("log", "rich"): {
-        "title": "The Fallen Log",
-        "intro": ("A storm-felled trunk lies square across the way, too high to "
-                  "climb and too long to walk around. It will have to be shifted."),
-        "on_success": ("It grinds, tips, and rolls off into the ferns. {char} "
-                       "dusts off both hands."),
+    ("hurdle", "rich"): {
+        "title": "The Fallen Logs",
+        "intro": ("Storm-felled trunks lie square across the way, too high to "
+                  "step over and too long to walk around."),
+        "on_success": ("Up and over, up and over, and {char} comes out the far "
+                       "side with bark on both knees."),
+    },
+    ("ford", "simple"): {
+        "title": "The Shallow Crossing",
+        "intro": "The water is not deep, but it is quick. In you go, {char}!",
+        "on_success": "Wet to the middle and grinning about it.",
+    },
+    ("ford", "rich"): {
+        "title": "The Rushing Ford",
+        "intro": ("Shallow enough to wade, fast enough to take {char}'s feet "
+                  "out from under them. One careful step at a time."),
+        "on_success": ("{char} climbs out the far bank, soaked through, and "
+                       "shakes like a dog."),
+    },
+    ("chasm", "simple"): {
+        "title": "The Big Gap",
+        "intro": "The ground stops! There is a gap. Get a run-up, {char}!",
+        "on_success": "WHOOSH. {char} lands on the other side.",
+    },
+    ("chasm", "rich"): {
+        "title": "The Chasm",
+        "intro": ("The ground simply stops, and starts again a long way over "
+                  "there. {char} backs up to get a run at it."),
+        "on_success": ("One enormous heartbeat in the air - and {char} lands "
+                       "rolling on the far side, entirely alive."),
+    },
+    ("generic", "simple"): {
+        "title": "The Crossing",
+        "intro": "Something is in the way. Over you go, {char}!",
+        "on_success": "Across, and on we go.",
+    },
+    ("generic", "rich"): {
+        "title": "The Crossing",
+        "intro": ("The way on is blocked, and there is nothing for it but to "
+                  "get across. {char} sizes it up."),
+        "on_success": ("Across. {char} looks back at it once, pleased, and "
+                       "keeps walking."),
     },
 }
 
-# What the child is told to DO during a traversal, by kind. The frontend
-# renders this under the story line while the arrow keys are live.
+# ===================================================== OBSTACLES (2026-09-19b)
+#
+# The playtest, verbatim:
+#
+#   "dont make it like a trail u always need to go thru, do trails, walks,
+#    maybe like hurdles??"
+#   "make it like to jump over the cliff she needs to answer this question!!
+#    thats fun"
+#
+# THE QUESTION IS THE KEY. The hero arrives at something they physically
+# cannot pass - a chasm, a cliff, a rushing ford, a collapsed bridge - and
+# stops. The question is what unlocks it. Answer correctly and the child
+# PERFORMS the crossing on the keyboard: run up and leap, haul up the ledges,
+# swing across on the rope. Answer wrong and nothing bad happens at all - the
+# obstacle simply stays shut and they try again.
+#
+# What this replaces: "Set off the 4 waymarks - follow the trail with the
+# arrow keys", which was four grey blobs in a line, identical every beat,
+# played BEFORE the question rather than won by it.
+#
+# `drama` (1-5) is what makes a quest escalate. `assign_obstacles` walks the
+# arc and hands out rising drama, never the same obstacle twice in a row, and
+# always the biggest thing we have at the climax.
+
+OBSTACLES = {
+    "stones": {
+        "action": "hop", "drama": 1, "title": "The Stepping Stones",
+        "noun": "stepping stone",
+        "blocked": "Fast water, and a line of flat stones across it. "
+                   "{char} tests the first one with a toe.",
+        "cleared": "Stone to stone to stone - and {char} is across, "
+                   "with dry paws and a very smug face.",
+        "hint": "Press → to hop from stone to stone",
+        "keys": ["→"], "steps": 4,
+    },
+    "hurdle": {
+        "action": "hurdle", "drama": 2, "title": "The Fallen Logs",
+        "noun": "log",
+        "blocked": "Storm-felled trunks lie across the path, one after "
+                   "another, each too high to step over.",
+        "cleared": "Up and over, up and over. {char} lands running.",
+        "hint": "Run with →, then SPACE to vault each log",
+        "keys": ["→", "SPACE"], "steps": 3,
+    },
+    "gate": {
+        "action": "unlock", "drama": 2, "title": "The Locked Gate",
+        "noun": "bolt",
+        "blocked": "An iron gate, taller than {char}, with three heavy bolts "
+                   "and not a gap anywhere in the wall beside it.",
+        "cleared": "The last bolt grinds back and the gate swings wide.",
+        "hint": "Press SPACE to throw each bolt, then → to walk through",
+        "keys": ["SPACE", "→"], "steps": 3,
+    },
+    "ford": {
+        "action": "ford", "drama": 2, "title": "The Rushing Ford",
+        "noun": "step",
+        "blocked": "The water is shallow enough to wade - and fast enough to "
+                   "take {char}'s feet out from under them.",
+        "cleared": "Soaked to the middle, but across. {char} shakes like a dog.",
+        "hint": "Hold → to push against the current",
+        "keys": ["→"], "steps": 5,
+    },
+    "ledges": {
+        "action": "climb", "drama": 3, "title": "The Cliff Ledges",
+        "noun": "ledge",
+        "blocked": "The cliff goes up and up. There are ledges - narrow ones, "
+                   "a good stretch apart - and no other way on.",
+        "cleared": "{char} hauls over the last lip and lies flat a moment, "
+                   "looking at how far down the world has gone.",
+        "hint": "Press ↑ to pull up to the next ledge",
+        "keys": ["↑"], "steps": 4,
+    },
+    "bridge": {
+        "action": "rebuild", "drama": 3, "title": "The Collapsed Bridge",
+        "noun": "plank",
+        "blocked": "The bridge is a row of empty posts and a long drop. The "
+                   "planks are all here - just not where they should be.",
+        "cleared": "Plank by plank it comes back together, and {char} walks "
+                   "across a bridge that was not there a minute ago.",
+        "hint": "Press SPACE to lay each plank, then → to cross",
+        "keys": ["SPACE", "→"], "steps": 4,
+    },
+    "hoops": {
+        "action": "hoop", "drama": 3, "title": "The Ring of Hoops",
+        "noun": "hoop",
+        "blocked": "Great burning hoops hang in a line over the gorge, "
+                   "turning slowly. The only way on goes straight through "
+                   "the middle of them.",
+        "cleared": "Through the middle of every one, clean as anything. "
+                   "{char} lands to a sound like applause.",
+        "hint": "Press SPACE to jump through each hoop",
+        "keys": ["SPACE"], "steps": 4,
+    },
+    "swing": {
+        "action": "swing", "drama": 4, "title": "The Rope Swing",
+        "noun": "swing",
+        "blocked": "A single rope hangs over the gap, swinging gently, well "
+                   "out of reach of anyone standing still.",
+        "cleared": "{char} sails across with both feet out, whooping, and "
+                   "lands in a heap of leaves.",
+        "hint": "Press SPACE to grab the rope, → to swing across",
+        "keys": ["SPACE", "→"], "steps": 3,
+    },
+    "chasm": {
+        "action": "leap", "drama": 5, "title": "The Chasm",
+        "noun": "leap",
+        "blocked": "The ground simply stops. A chasm, wider than {char} is "
+                   "brave, and the far edge waiting on the other side.",
+        "cleared": "{char} hangs in the air for one enormous heartbeat - and "
+                   "lands, rolling, on the far side.",
+        "hint": "Hold → to run up, then SPACE to LEAP",
+        "keys": ["→", "SPACE"], "steps": 2,
+    },
+}
+
+# Stable order so obstacle choice is deterministic given a seed.
+OBSTACLE_ORDER = ("stones", "hurdle", "gate", "ford", "ledges", "bridge",
+                  "swing", "chasm")
+
+# The easiest thing we have, for the arrival beat and for any fallback.
+DEFAULT_OBSTACLE = "stones"
+
+
+def obstacle_spec(kind: str) -> dict:
+    return OBSTACLES.get(kind) or OBSTACLES[DEFAULT_OBSTACLE]
+
+
+def assign_obstacles(beats: list[dict], rng: random.Random) -> None:
+    """Hand every beat an obstacle: escalating, and never twice in a row.
+
+    Three rules, in order of how much they matter:
+      1. the climax gets the most dramatic obstacle in the set;
+      2. no two consecutive beats use the same obstacle (the old trail beat
+         was the same four blobs every single time, which is what made it
+         read as filler);
+      3. otherwise drama rises smoothly across the arc.
+    """
+    n = max(1, len(beats))
+    previous = None
+    for i, beat in enumerate(beats):
+        t = i / max(1, n - 1)
+        target = 1 + round(t * 4)
+        if beat.get("finale"):
+            target = 5
+        elif beat.get("kind") == "resolution":
+            target = 1              # arriving home is not an assault course
+        elif beat.get("helper"):
+            target = 1              # a friend just turned up; keep it gentle
+        pool = [k for k in OBSTACLE_ORDER if k != previous] or list(OBSTACLE_ORDER)
+        # nearest drama to the target; ties broken by the seeded rng, so the
+        # same quest always plays the same obstacles.
+        pick = min(pool, key=lambda k: (abs(OBSTACLES[k]["drama"] - target),
+                                        rng.random()))
+        beat["obstacle"] = pick
+        previous = pick
+
+
+# Legacy: the V3 "walk to the question" vocabulary. Kept only so an older
+# frontend build still renders SOMETHING rather than nothing. New code reads
+# `challenge["obstacle"]`.
 TRAVERSAL_HINT = {
-    "stones": "Hop from stone to stone with the arrow keys",
-    "ledge": "Climb the ledges with the arrow keys",
-    "log": "Push the log along with the arrow keys",
-    "gate": "Work the latches open with the arrow keys",
-    "reeds": "Wade through with the arrow keys",
-    "path": "Follow the trail with the arrow keys",
+    "stones": "Press → to hop from stone to stone",
+    "ledges": "Press ↑ to pull up to the next ledge",
+    "bridge": "Press SPACE to lay each plank, then → to cross",
+    "gate": "Press SPACE to throw each bolt",
+    "ford": "Hold → to push against the current",
+    "hurdle": "Run with →, then SPACE to vault",
+    "swing": "Press SPACE to grab the rope, → to swing",
+    "chasm": "Hold → to run up, then SPACE to LEAP",
 }
 
 # When no destination was typed, one is inferred from the setting the child's
@@ -794,8 +960,7 @@ def default_location(beat: dict, setting: str, goal: str) -> str:
 HELPER_BEAT = {
     "key": "helper", "kind": "helper", "title": "A Friend Catches Up",
     "slot": 2, "camera": "left_bank", "tint": "day", "level_delta": -2,
-    "mechanic": ["pick", "collect"], "helper": True,
-    "traversal": {"kind": "path", "verb": "Walk", "noun": "step", "steps": 2},
+    "mechanic": ["pick"], "helper": True,
     "intro": ("Something comes bounding over the rise - it's {friend}, {friend_desc}! "
               "\"Budge up,\" says {friend}. \"Two heads. Let's do an easy one "
               "together first.\""),
@@ -1096,29 +1261,66 @@ def current_beat(quest: dict) -> dict | None:
     return quest["beats"][quest["index"]]
 
 
-def traversal_for(quest: dict, beat: dict) -> dict:
-    """The keyboard journey the child plays to REACH this beat.
+def obstacle_for(quest: dict, beat: dict, ctx: dict | None = None) -> dict:
+    """The thing blocking the way, and what unlocks it.
 
-    This is the answer to "the questions don't relate to each other": you no
-    longer get a question, you walk somewhere and find one. The frontend
-    renders `steps` nodes across the lower third of the art and only reveals
-    the question once the hero has touched the last one.
+    Contract with the frontend:
+
+      locked_text   shown the moment the hero arrives. They CANNOT pass.
+      unlocked_by   "question" -> the answer is the key (most beats)
+                    "effort"   -> an interlude; just do the crossing
+      hint / keys   what to press, once it is unlocked
+      steps         how many input beats the crossing takes
+      cleared_text  the payoff line after the last input
+
+    Ordering matters and is the whole point: the question comes FIRST and the
+    traversal is the reward. The old V3 flow was the other way round - walk
+    four grey blobs, then get a question - which playtesters read as
+    busywork, correctly.
     """
-    tv = dict(beat.get("traversal") or {})
-    kind = tv.get("kind", "stones")
-    steps = int(tv.get("steps") or traversal_steps(quest.get("complexity", 1),
-                                                   bool(beat.get("no_question"))))
-    noun = tv.get("noun", "stepping stone")
-    verb = tv.get("verb", "Hop")
-    plural = noun if noun.endswith("s") else noun + "s"
+    kind = beat.get("obstacle") or DEFAULT_OBSTACLE
+    spec = obstacle_spec(kind)
+    ctx = ctx or _ctx(quest)
+    gated = not beat.get("no_question")
+    complexity = quest.get("complexity", 1)
+    # A nine-year-old on a speed/distance quest gets a longer crossing than a
+    # four-year-old doing addition - but never so long it becomes a chore.
+    steps = int(spec.get("steps", 3)) + (1 if complexity >= 4 else 0)
+    steps = max(2, min(6, steps))
+    noun = spec.get("noun", "step")
     return {
         "kind": kind,
-        "steps": max(1, min(8, steps)),
-        "verb": verb,
+        "action": spec.get("action", "hop"),
+        "drama": int(spec.get("drama", 1)),
+        "title": spec.get("title", "The Crossing"),
         "noun": noun,
-        "label": f"{verb} the {steps} {plural}",
-        "hint": TRAVERSAL_HINT.get(kind, TRAVERSAL_HINT["path"]),
-        "gates_question": not beat.get("no_question"),
+        "plural": noun if noun.endswith("s") else noun + "s",
+        "steps": steps,
+        "keys": list(spec.get("keys") or ["→"]),
+        "hint": spec.get("hint", TRAVERSAL_HINT.get(kind, "Press → to go on")),
+        "locked_text": _fmt(spec.get("blocked", ""), **ctx),
+        "cleared_text": _fmt(spec.get("cleared", ""), **ctx),
+        "unlocked_by": "question" if gated else "effort",
+        "gates_question": False,     # the QUESTION gates the OBSTACLE now
+    }
+
+
+def traversal_for(quest: dict, beat: dict) -> dict:
+    """DEPRECATED legacy view of `obstacle_for`, kept for older frontends.
+
+    Same `steps` / `hint` / `kind` keys the V3 build read. `gates_question`
+    is now always False: nothing gates the question any more, because the
+    question is what gates everything else.
+    """
+    ob = obstacle_for(quest, beat)
+    return {
+        "kind": ob["kind"],
+        "steps": ob["steps"],
+        "verb": ob["action"].title(),
+        "noun": ob["noun"],
+        "label": ob["title"],
+        "hint": ob["hint"],
+        "gates_question": False,
     }
 
 
@@ -1242,9 +1444,12 @@ def issue_beat(quest: dict, session_level: int, mistakes_total: int = 0,
         "is_finale": bool(challenge.get("is_finale")),
         "complexity": quest.get("complexity", 1),
     }
-    # The walk that gates this beat. Always present - even the arrival beat
-    # is reached on foot.
-    challenge["traversal"] = traversal_for(quest, beat)
+    # ★ THE OBSTACLE. The hero has arrived at something they cannot pass;
+    # answering the question is what unlocks it, and then the child performs
+    # the crossing on the keyboard. Always present - even the arrival beat
+    # has a last little step to take.
+    challenge["obstacle"] = obstacle_for(quest, beat, ctx)
+    challenge["traversal"] = traversal_for(quest, beat)   # deprecated alias
     challenge["no_fail"] = bool(beat.get("no_fail"))
     challenge["quest_state"] = dict(quest["state"])
 
