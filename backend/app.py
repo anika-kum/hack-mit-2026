@@ -1,0 +1,920 @@
+"""
+Doodle Quest - FastAPI backend.
+
+Serves the API and the static frontend from a single process:
+    uvicorn app:app --reload --port 8000   (run from the backend/ directory)
+
+Three layers, in order of how much we trust them:
+    math_engine.py   deterministic math + visual layout   (always correct)
+    story_engine.py  deterministic quest arc + narration  (always available)
+    prompts.py       OpenAI embellishment                 (optional, degrades)
+
+The game is fully playable with the AI layer completely dead.
+
+
+V2 API CONTRACT (what the frontend consumes)
+--------------------------------------------
+POST /api/create-world
+  in : image_data_url?, text_description?, theme, generate_images,
+       destination?   <- NEW, free text, e.g. "cross the river"
+       band?          <- NEW, optional hint so the storyline is pitched right
+  out: session_id, interpretation, background, character_sprite,
+       destination     the goal as asked for ("cross the river and reach X")
+       goal_text       the PLACE inside it ("X") - use this in the UI
+       destination_source  "child" | "inferred"
+       frame {id, index:0, ready, frames_max, frame_every_beats}
+
+POST /api/start-game   (unchanged inputs)
+  out: ... plus goal_text, journey_progress, distance_remaining,
+       distance_text, story_source ("openai" | "template")
+
+Every challenge payload (start-game, next-beat) now carries:
+  challenge.beat.goal_text / location / advances
+  challenge.beat.journey_progress (0-1) / distance_remaining / distance_text
+  challenge.frame {
+     id, index, wanted_index, ready, is_new,
+     image      base64 data URL, sent ONCE - on the beat where this frame
+                first becomes current. null means "keep showing what you have"
+     image_url  /api/frame/{id}/image - re-fetch any time, cacheable
+     next_id / next_status / next_url
+                non-null => a newer frame is rendering. Poll next_url and
+                CROSSFADE to it when status flips to "ready". Never blank the
+                screen: the current frame stays up until the new one lands.
+     frames_used / frames_max
+  }
+
+POST /api/answer  -> ... plus progress_line, journey_progress,
+                     distance_remaining, distance_text, goal_text
+POST /api/next-beat on completion -> ... plus arrival_frame (same shape as
+                     challenge.frame) and the journey block
+
+GET /api/frame/{id}        {id,index,status,ready,image,image_url,
+                            scene_brief,gen_seconds,error}
+GET /api/frame/{id}/image  the raw PNG (200), or 409 while pending/failed
+GET /api/session/{id}      ... plus frames[], frames_max, frame_every_beats,
+                           goal_text, storyline_source, storyline_wait_s
+"""
+
+import base64
+import os
+import pathlib
+import random
+import threading
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+load_dotenv(pathlib.Path(__file__).parent / ".env")
+
+import math_engine  # noqa: E402
+import prompts  # noqa: E402
+import story_engine  # noqa: E402
+
+BASE_DIR = pathlib.Path(__file__).resolve().parent
+FRONTEND_DIR = BASE_DIR.parent / "frontend"
+
+app = FastAPI(title="Doodle Quest API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# In-memory session store. Fine for a hackathon demo; swap for Redis to scale.
+SESSIONS: dict[str, dict] = {}
+
+# Fields that must never reach the browser: they are, or reconstruct, the
+# answer key. Everything else in the challenge is renderable data.
+SECRET_FIELDS = ("explanation", "answer_order", "order_cyclic")
+# Per-stone fields that ARE safe to ship - they are what makes the puzzle
+# solvable by looking at it.
+STONE_VISUAL_FIELDS = ("group", "tint", "shape", "dots", "x_pct", "y_pct")
+
+
+# ------------------------------------------------------- V2 configuration
+#
+# Cost guard. At gpt-image-2.5-flare "low" a 1536x1024 frame is a few cents;
+# MAX_FRAMES is the hard ceiling on how many a single session can ever buy,
+# including the opening background (frame 0).
+MAX_FRAMES = int(os.getenv("DQ_MAX_FRAMES", "6"))
+# Repaint the world every N beats.
+FRAME_EVERY_BEATS = int(os.getenv("DQ_FRAME_EVERY_BEATS", "2"))
+# The bespoke storyline is prefetched at create-world and collected at
+# start-game. It measures ~11s; create-world spends ~11-20s painting images
+# right after firing it, and the child then spends a few seconds choosing a
+# topic, so in the real flow start-game usually waits ZERO.
+#   BUDGET  - total wall clock from the request; later than this and the
+#             outline is abandoned for an authored template.
+#   BLOCK   - the most /api/start-game will ever stall waiting for it, even
+#             if the budget still had room. Gameplay never hangs on AI.
+STORYLINE_BUDGET_S = float(os.getenv("DQ_STORYLINE_BUDGET_S", "30"))
+STORYLINE_MAX_BLOCK_S = float(os.getenv("DQ_STORYLINE_MAX_BLOCK_S", "18"))
+# How long a frame render will wait for the frame it is seeded from.
+FRAME_SEED_WAIT_S = float(os.getenv("DQ_FRAME_SEED_WAIT_S", "40"))
+
+# Background work: image frames, sprites and storyline prefetch. One session
+# occupies at most three workers, one of which may be parked waiting for the
+# frame it continues from - so keep enough headroom that a handful of
+# simultaneous children cannot starve each other.
+_POOL = ThreadPoolExecutor(
+    max_workers=int(os.getenv("DQ_WORKERS", "12")), thread_name_prefix="dq-bg")
+
+
+# ------------------------------------------------------------------ models
+
+class CreateWorldRequest(BaseModel):
+    image_data_url: str | None = None
+    text_description: str | None = None
+    theme: str = "storybook"
+    generate_images: bool = True
+    # V2 item 3: where the child wants to GET to. Optional - when it is blank
+    # a concrete destination is inferred from their setting.
+    destination: str | None = None
+    # Optional hint so the prefetched storyline can be pitched at the right
+    # age. The authoritative band still arrives with /api/start-game.
+    band: str | None = None
+
+
+class StartGameRequest(BaseModel):
+    session_id: str
+    topic: str
+    band: str
+
+
+class AnswerRequest(BaseModel):
+    session_id: str
+    stone_ids: list[int]
+
+
+class NextChallengeRequest(BaseModel):
+    session_id: str
+
+
+# ------------------------------------------------------------------ routes
+
+@app.get("/api/health")
+def health():
+    return {
+        "ok": True,
+        "ai_enabled": prompts.ai_available(),
+        "vision_model": prompts.VISION_MODEL,
+        "image_model": prompts.IMAGE_MODEL,
+        "last_error": prompts.LAST_ERROR,
+        "max_frames": MAX_FRAMES,
+        "frame_every_beats": FRAME_EVERY_BEATS,
+        "storyline_budget_s": STORYLINE_BUDGET_S,
+    }
+
+
+@app.get("/api/topics")
+def topics():
+    return {
+        "topics": [
+            {
+                "id": tid,
+                "label": label,
+                "bands": [
+                    {"id": b, **math_engine.BANDS[b],
+                     "archetypes": math_engine.archetypes_for(tid, b)}
+                    for b in math_engine.TOPIC_BANDS.get(tid, [])
+                ],
+            }
+            for tid, label in math_engine.TOPICS.items()
+        ],
+        "themes": list(prompts.THEMES.keys()),
+    }
+
+
+# ------------------------------------------------------------ frame store
+#
+# V2 item 5. The world repaints every FRAME_EVERY_BEATS beats, and frame N+1
+# is seeded with frame N so the child sees ONE world advancing rather than a
+# slideshow of unrelated pictures.
+#
+# The whole point of this store is that no request ever waits on an image.
+# The moment a frame is handed to the browser, the next one starts rendering
+# in a worker thread; a beat that arrives before its frame is ready simply
+# keeps showing the frame it already has and picks the new one up later. The
+# child solves a problem in 10-40s, a frame takes ~11s, so in practice the
+# next frame is always waiting.
+
+def _frame_id(session_id: str, index: int) -> str:
+    return f"{session_id}-f{index}"
+
+
+def _new_frame_record(session_id: str, index: int, brief: str,
+                      progress: float = 0.0) -> dict:
+    return {
+        "id": _frame_id(session_id, index),
+        "index": index,
+        "status": "pending",
+        "image": None,
+        "scene_brief": brief,
+        "progress": progress,
+        "requested_at": time.time(),
+        "ready_at": None,
+        "gen_seconds": None,
+        "sent": False,
+        "error": None,
+    }
+
+
+def _ready_image(session: dict, index: int) -> str | None:
+    rec = session["frames"].get(index)
+    return rec["image"] if rec and rec["status"] == "ready" else None
+
+
+def _await_seed(session: dict, index: int) -> str | None:
+    """Wait (bounded) for frame index-1, which this frame is painted from."""
+    if index <= 0:
+        return None
+    deadline = time.time() + FRAME_SEED_WAIT_S
+    while time.time() < deadline:
+        prev = session["frames"].get(index - 1)
+        if prev is None:
+            return None            # nothing to continue from; paint fresh
+        if prev["status"] == "ready":
+            return prev["image"]
+        if prev["status"] == "failed":
+            # Reach further back rather than giving up on continuity.
+            for j in range(index - 2, -1, -1):
+                img = _ready_image(session, j)
+                if img:
+                    return img
+            return None
+        time.sleep(0.25)
+    return None
+
+
+def _render_frame(session: dict, rec: dict) -> None:
+    seed = _await_seed(session, rec["index"])
+    started = time.time()
+    image = prompts.generate_frame(
+        session["interpretation"],
+        theme=session.get("theme", "storybook"),
+        scene_brief=rec["scene_brief"],
+        previous_frame=seed,
+        goal_text=session.get("goal_text"),
+        progress=rec.get("progress"),
+    )
+    rec["gen_seconds"] = round(time.time() - started, 2)
+    rec["ready_at"] = time.time()
+    rec["seeded_from"] = rec["index"] - 1 if seed else None
+    if image:
+        rec["image"] = image
+        rec["status"] = "ready"
+    else:
+        rec["status"] = "failed"
+        rec["error"] = prompts.LAST_ERROR
+
+
+def _request_frame(session: dict, index: int, brief: str,
+                   progress: float = 0.0) -> dict | None:
+    """Kick off one frame if it is wanted, affordable and not already going."""
+    if not session.get("frames_enabled") or not prompts.ai_available():
+        return None
+    if index < 0 or index >= MAX_FRAMES:
+        return None                 # cost guard
+    with session["frames_lock"]:
+        if index in session["frames"]:
+            return session["frames"][index]
+        rec = _new_frame_record(session["id"], index, brief, progress)
+        session["frames"][index] = rec
+    _POOL.submit(_render_frame, session, rec)
+    return rec
+
+
+def _prefetch_next_frame(session: dict) -> None:
+    """Start the frame AFTER the one the child is about to be shown."""
+    quest = session.get("quest")
+    if quest is None:
+        return
+    here = story_engine.frame_index_for_beat(quest["index"], FRAME_EVERY_BEATS)
+    nxt = here + 1
+    if nxt >= MAX_FRAMES or nxt in session["frames"]:
+        return
+    _request_frame(
+        session, nxt,
+        story_engine.scene_brief_for_frame(quest, nxt, FRAME_EVERY_BEATS),
+        story_engine.frame_progress(quest, nxt, FRAME_EVERY_BEATS))
+
+
+def _frame_payload(session: dict, beat_index: int) -> dict:
+    """What the renderer should be showing right now, and what is coming.
+
+    `image` is the base64 PNG, and it is sent EXACTLY ONCE per frame - on the
+    beat where that frame first becomes current. Every later beat sends
+    image=null, which means "keep showing what you have". Re-fetch any frame
+    any time from image_url.
+    """
+    wanted = min(story_engine.frame_index_for_beat(beat_index, FRAME_EVERY_BEATS),
+                 MAX_FRAMES - 1)
+    with session["frames_lock"]:
+        ready = [i for i, r in session["frames"].items()
+                 if i <= wanted and r["status"] == "ready"]
+        show = max(ready) if ready else None
+        rec = session["frames"].get(show) if show is not None else None
+        image = None
+        if rec is not None and not rec["sent"]:
+            image = rec["image"]
+            rec["sent"] = True
+        pending = session["frames"].get(wanted) if wanted != show else None
+
+    return {
+        "id": rec["id"] if rec else None,
+        "index": show,
+        "wanted_index": wanted,
+        "ready": rec is not None,
+        "is_new": image is not None,
+        "image": image,
+        "image_url": f"/api/frame/{rec['id']}/image" if rec else None,
+        "scene_brief": rec["scene_brief"] if rec else None,
+        # Poll this when it is not null: a newer frame is on its way and the
+        # browser should crossfade to it the moment it lands.
+        "next_id": pending["id"] if pending else None,
+        "next_status": pending["status"] if pending else None,
+        "next_url": f"/api/frame/{pending['id']}" if pending else None,
+        "frames_used": len(session["frames"]),
+        "frames_max": MAX_FRAMES,
+    }
+
+
+def _lookup_frame(frame_id: str) -> dict:
+    sid, _, idx = (frame_id or "").rpartition("-f")
+    session = SESSIONS.get(sid)
+    if session is None or not idx.isdigit():
+        raise HTTPException(404, "Unknown frame.")
+    rec = session["frames"].get(int(idx))
+    if rec is None:
+        raise HTTPException(404, "Unknown frame.")
+    return rec
+
+
+@app.get("/api/frame/{frame_id}")
+def get_frame(frame_id: str):
+    """Frame metadata + the PNG as a data URL once it is ready."""
+    rec = _lookup_frame(frame_id)
+    return {
+        "id": rec["id"],
+        "index": rec["index"],
+        "status": rec["status"],
+        "ready": rec["status"] == "ready",
+        "image": rec["image"],
+        "image_url": f"/api/frame/{rec['id']}/image" if rec["image"] else None,
+        "scene_brief": rec["scene_brief"],
+        "gen_seconds": rec["gen_seconds"],
+        "error": rec["error"],
+    }
+
+
+@app.get("/api/frame/{frame_id}/image")
+def get_frame_image(frame_id: str):
+    """The raw PNG, for dropping straight into an <img src>."""
+    rec = _lookup_frame(frame_id)
+    if rec["status"] != "ready" or not rec["image"]:
+        raise HTTPException(409, f"Frame is {rec['status']}.")
+    url = rec["image"]
+    if not url.startswith("data:"):
+        # Some image deployments hand back a hosted URL instead of base64.
+        return RedirectResponse(url)
+    raw = base64.b64decode(url.split(",", 1)[1])
+    return Response(content=raw, media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.post("/api/create-world")
+def create_world(req: CreateWorldRequest):
+    if not req.image_data_url and not req.text_description:
+        raise HTTPException(400, "Provide a drawing or a description.")
+
+    interpretation = prompts.interpret_creation(
+        image_data_url=req.image_data_url,
+        text_description=req.text_description,
+    )
+
+    objects = interpretation.get("objects", []) or []
+    setting = math_engine.pick_setting(objects)
+    # Two forms, deliberately: what the child asked for ("cross the river and
+    # reach the lighthouse") drives the story, and the place inside it ("the
+    # lighthouse") is what a progress bar and an image prompt can name.
+    destination = story_engine.clean_destination(req.destination, setting, objects)
+    goal_text = story_engine.goal_phrase(destination)
+
+    session_id = uuid.uuid4().hex[:12]
+    session = {
+        "id": session_id,
+        "interpretation": interpretation,
+        "theme": req.theme,
+        "background": None,
+        "character_sprite": None,
+        "destination": (req.destination or "").strip() or None,
+        "goal_text": goal_text,
+        "setting": setting,
+        "band_hint": req.band,
+        "level": 2,
+        "score": 0,
+        "streak": 0,
+        "consecutive_correct": 0,
+        "consecutive_wrong": 0,
+        "mistakes_total": 0,
+        "answered": 0,
+        "topic": None,
+        "band": None,
+        "challenge": None,
+        "quest": None,
+        "history": [],
+        # journey frames
+        "frames": {},
+        "frames_lock": threading.Lock(),
+        "frames_enabled": bool(req.generate_images),
+        "storyline_future": None,
+        "storyline": None,
+    }
+    SESSIONS[session_id] = session
+
+    # V2 item 2: write the bespoke quest FIRST, in the background. It takes
+    # ~12s, which is almost exactly what the images below take - so by the
+    # time create-world returns it is already done and /api/start-game does
+    # not wait at all. (Submitting it after the images cost 14s of dead air.)
+    session["storyline_future"] = _POOL.submit(
+        prompts.generate_storyline, interpretation,
+        req.band or "23", destination, story_engine.JOURNEY_SKELETON, "")
+    session["storyline_requested_at"] = time.time()
+
+    if req.generate_images:
+        # The opening background IS journey frame 0 - the anchor every later
+        # frame is painted from. The sprite is independent, so the two run
+        # side by side instead of back to back (~11s saved).
+        sprite_job = _POOL.submit(
+            prompts.generate_world_image, interpretation, req.theme, "character")
+        frame0 = _new_frame_record(session_id, 0, story_engine.default_location(
+            {"camera": "wide", "tint": "day"},
+            interpretation.get("setting") or setting, goal_text))
+        session["frames"][0] = frame0
+        _render_frame(session, frame0)
+        session["background"] = frame0["image"]
+        try:
+            session["character_sprite"] = sprite_job.result(timeout=90)
+        except Exception as exc:  # a missing sprite must not kill world creation
+            prompts.note_error(exc)
+
+    return {
+        "session_id": session_id,
+        "interpretation": interpretation,
+        "background": session["background"],
+        "character_sprite": session["character_sprite"],
+        "destination": destination,
+        "goal_text": goal_text,
+        "destination_source": "child" if session["destination"] else "inferred",
+        "frame": {
+            "id": _frame_id(session_id, 0) if session["frames"] else None,
+            "index": 0,
+            "ready": bool(session["background"]),
+            "frames_max": MAX_FRAMES,
+            "frame_every_beats": FRAME_EVERY_BEATS,
+        },
+        "ai_enabled": prompts.ai_available(),
+    }
+
+
+# ------------------------------------------------------------------ grading
+
+def _grade(challenge: dict, chosen_list: list[int], chosen: set[int],
+           correct_ids: set[int]) -> bool:
+    """Deterministic grading. Never an LLM - a wrong answer key is fatal here."""
+    mode = challenge.get("grade_mode", "set")
+    stones = challenge.get("stones", [])
+
+    if mode == "count":
+        # COLLECT-N: pick exactly target_count items, and only collectable
+        # ones. Stones flagged correct=False are traps (mushrooms, etc).
+        collectable = {s["id"] for s in stones if s.get("correct", True)}
+        return len(chosen) == challenge.get("target_count") and chosen <= collectable
+
+    if mode == "groups":
+        # Correct iff the child selected exactly N *complete* sandbars and
+        # nothing outside them - i.e. n of d equal parts.
+        groups: dict[int, set[int]] = {}
+        for s in stones:
+            groups.setdefault(s.get("group"), set()).add(s["id"])
+        whole = {g for g, ids in groups.items() if ids and ids <= chosen}
+        covered = set().union(*(groups[g] for g in whole)) if whole else set()
+        return len(whole) == challenge.get("answer_group_count") and chosen == covered
+
+    if mode == "order":
+        # ORDERED-WALK. Dedupe consecutive repeats first: a child who wobbles
+        # on a corner post should not fail for touching it twice.
+        seq = [n for i, n in enumerate(chosen_list) if i == 0 or n != chosen_list[i - 1]]
+        want = challenge.get("answer_order") or []
+        if not want:
+            return False
+        if seq == want:
+            return True
+        if challenge.get("order_cyclic"):
+            n = len(want)
+            if len(seq) != n or set(seq) != set(want):
+                return False
+            for base in (want, list(reversed(want))):
+                for r in range(n):
+                    if seq == base[r:] + base[:r]:
+                        return True
+        return False
+
+    if mode == "sum":
+        vals = [s["value"] for s in stones if s["id"] in chosen]
+        if not vals:
+            return False
+        target = challenge.get("answer_sum")
+        if target is None:
+            return False
+        return abs(sum(vals) - target) <= challenge.get("tolerance", 1e-4)
+
+    return chosen == correct_ids
+
+
+def _get_session(session_id: str) -> dict:
+    session = SESSIONS.get(session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found. Please create a world first.")
+    return session
+
+
+def _public_challenge(challenge: dict) -> dict:
+    """Strip the answer key. Keep every field the renderer needs."""
+    public = {k: v for k, v in challenge.items() if k not in SECRET_FIELDS}
+    public["answer_order"] = None  # key present, value withheld
+    public["stones"] = [
+        {"id": s["id"], "label": s.get("label", ""),
+         **{f: s[f] for f in STONE_VISUAL_FIELDS if f in s}}
+        for s in challenge["stones"]
+    ]
+    return public
+
+
+def _issue_beat(session: dict) -> dict | None:
+    """Generate the current quest beat and cache it server-side."""
+    quest = session.get("quest")
+    if quest is None:
+        raise HTTPException(400, "Start a game first.")
+    challenge = story_engine.issue_beat(
+        quest,
+        session_level=session["level"],
+        mistakes_total=session["mistakes_total"],
+        seed=random.randrange(1 << 30),
+    )
+    if challenge is None:
+        return None
+    challenge["narrative"] = prompts.narrate_challenge(challenge, session["interpretation"])
+    session["challenge"] = challenge
+
+    public = _public_challenge(challenge)
+    # The frame for THIS beat, then immediately start the next one. Requesting
+    # the prefetch here - while the child has not even read the problem yet -
+    # is what buys the ~11s render back.
+    public["frame"] = _frame_payload(session, quest["index"])
+    _prefetch_next_frame(session)
+    return public
+
+
+# Kept for backwards compatibility with anything still calling it.
+def _issue_challenge(session: dict) -> dict:
+    return _issue_beat(session)
+
+
+def _collect_storyline(session: dict) -> dict | None:
+    """Pick up the storyline prefetched at create-world time.
+
+    Returns None - meaning "use an authored template" - if there was no AI,
+    if the model produced something unusable, or if it is simply still
+    running past its budget. Starting the game late is worse than starting
+    it with a template, every time.
+    """
+    fut = session.get("storyline_future")
+    if fut is None:
+        return None
+    waited = time.time() - session.get("storyline_requested_at", time.time())
+    budget = min(STORYLINE_BUDGET_S - waited, STORYLINE_MAX_BLOCK_S)
+    try:
+        storyline = fut.result(timeout=max(0.0, budget))
+    except Exception as exc:
+        prompts.note_error(exc)
+        session["storyline_wait_s"] = round(time.time() - session.get(
+            "storyline_requested_at", time.time()), 2)
+        return None
+    session["storyline"] = storyline
+    session["storyline_wait_s"] = round(time.time() - session.get(
+        "storyline_requested_at", time.time()), 2)
+    return storyline
+
+
+@app.post("/api/start-game")
+def start_game(req: StartGameRequest):
+    session = _get_session(req.session_id)
+    if req.topic not in math_engine.TOPICS:
+        raise HTTPException(400, f"Unknown topic: {req.topic}")
+    if req.band not in math_engine.TOPIC_BANDS.get(req.topic, []):
+        raise HTTPException(400, f"Topic {req.topic} is not available for age band {req.band}")
+
+    session["topic"] = req.topic
+    session["band"] = req.band
+    session["level"] = 1 if req.band == "k1" else 2
+    session["consecutive_correct"] = 0
+    session["consecutive_wrong"] = 0
+    session["quest"] = story_engine.start_quest(
+        req.topic, req.band, session["interpretation"],
+        destination=session.get("destination"),
+        storyline=_collect_storyline(session),
+    )
+
+    challenge = _issue_beat(session)
+    quest = session["quest"]
+    return {
+        "challenge": challenge,
+        "stats": _stats(session),
+        "quest": story_engine.summary(quest),
+        "opening": quest["opening"],
+        "goal_text": quest["goal_text"],
+        "journey_progress": story_engine.journey_progress(quest),
+        "distance_remaining": story_engine.distance_remaining(quest),
+        "distance_text": story_engine.distance_text(quest),
+        "story_source": quest["story_source"],
+        "story_hook": session["interpretation"].get("story_hook", ""),
+    }
+
+
+@app.post("/api/next-beat")
+def next_beat(req: NextChallengeRequest):
+    """Advance the quest one beat and issue its challenge.
+
+    When the arc is finished the response carries `complete: true` plus the
+    epilogue instead of a challenge.
+    """
+    session = _get_session(req.session_id)
+    quest = session.get("quest")
+    if quest is None:
+        raise HTTPException(400, "Start a game first.")
+
+    if quest["complete"]:
+        return _quest_finished(session)
+
+    # The very first beat is issued by /api/start-game; only advance once the
+    # current beat has actually been answered.
+    if quest["awaiting_answer"] and session.get("challenge"):
+        replay = _public_challenge(session["challenge"])
+        replay["frame"] = _frame_payload(session, quest["index"])
+        return {
+            "challenge": replay,
+            "stats": _stats(session),
+            "quest": story_engine.summary(quest),
+            "complete": False,
+            "epilogue": None,
+            **_journey(quest),
+        }
+
+    if not story_engine.advance(quest):
+        return _quest_finished(session)
+
+    return {
+        "challenge": _issue_beat(session),
+        "stats": _stats(session),
+        "quest": story_engine.summary(quest),
+        "complete": False,
+        "epilogue": None,
+        **_journey(quest),
+    }
+
+
+@app.post("/api/next-challenge")
+def next_challenge(req: NextChallengeRequest):
+    """Legacy alias for /api/next-beat."""
+    return next_beat(req)
+
+
+def _journey(quest: dict) -> dict:
+    """The progress block the UI renders: a goal, a bar, and how far is left."""
+    return {
+        "goal_text": quest.get("goal_text", ""),
+        "journey_progress": story_engine.journey_progress(quest),
+        "distance_remaining": story_engine.distance_remaining(quest),
+        "distance_text": story_engine.distance_text(quest),
+    }
+
+
+def _quest_finished(session: dict) -> dict:
+    quest = session["quest"]
+    quest["complete"] = True
+    session["challenge"] = None
+    return {
+        "challenge": None,
+        "complete": True,
+        "epilogue": story_engine.epilogue(quest),
+        "quest": story_engine.summary(quest),
+        "stats": _stats(session),
+        "arrival_frame": _frame_payload(session, quest["index"]),
+        **_journey(quest),
+    }
+
+
+# --------------------------------------------------------------- adaptation
+
+_ADAPT_LINES = {
+    "streak_up": "Three in a row! Here comes a tougher one. \U0001F525",
+    "two_right_up": "You're on fire - stepping it up a notch!",
+    "two_wrong_down": "Let's make the next one friendlier. You've got this.",
+    "hold_after_slip": "Close one! Same kind of puzzle next - try it again.",
+    "hold": "Nice work. Onward!",
+}
+
+
+def _adaptation(session: dict, quest: dict, reason: str, previous_level: int,
+                helper_added: bool, optional_dropped: bool,
+                was_correct: bool) -> dict:
+    level = session["level"]
+    direction = "up" if level > previous_level else "down" if level < previous_level else "same"
+
+    message = _ADAPT_LINES.get(reason, _ADAPT_LINES["hold"])
+    if helper_added:
+        message = (f"{quest['friend']} is running over to help - the next one "
+                   f"is an easier one, together.")
+        direction = "helper"
+    elif optional_dropped:
+        message = "You're flying! We're taking the short cut to the big finish."
+
+    obstacles = min(session["mistakes_total"], 3)
+    # Only announce the obstacle change on the beat where it CHANGED - a line
+    # repeated every single beat stops being information and starts being noise.
+    detail = None
+    if obstacles and not was_correct:
+        detail = (f"The trail just grew {'another thing' if obstacles == 1 else 'more things'} "
+                  f"to weave around - but the puzzles get gentler, not harder.")
+
+    return {
+        "direction": direction,
+        "reason": reason,
+        "message": message,
+        "detail": detail,
+        "level": level,
+        "previous_level": previous_level,
+        "math_easier": level < previous_level,
+        "nav_obstacles": obstacles,
+        "beats_total": len(quest["beats"]),
+        "helper_added": helper_added,
+        "optional_dropped": optional_dropped,
+    }
+
+
+@app.post("/api/answer")
+def answer(req: AnswerRequest):
+    session = _get_session(req.session_id)
+    challenge = session.get("challenge")
+    if challenge is None:
+        raise HTTPException(400, "No active challenge.")
+    quest = session.get("quest")
+
+    correct_ids = {s["id"] for s in challenge["stones"] if s["correct"]}
+    chosen = set(req.stone_ids)
+    graded = _grade(challenge, req.stone_ids, chosen, correct_ids)
+
+    # "n of d equal parts" has many right answers. When the child found one of
+    # them, highlight THEIRS - highlighting a different valid set would read
+    # as "you were wrong" after being told you were right.
+    reveal_ids = correct_ids
+    if graded and challenge.get("grade_mode") in ("groups", "count", "sum"):
+        reveal_ids = chosen
+
+    # The resolution beat cannot be failed. The quest always ends in a win -
+    # the child still sees the worked answer, they just don't lose on it.
+    no_fail = bool(challenge.get("no_fail"))
+    was_correct = True if no_fail else graded
+
+    session["answered"] += 1
+    if was_correct:
+        session["consecutive_correct"] += 1
+        session["consecutive_wrong"] = 0
+        session["streak"] += 1
+        session["score"] += 10 * session["level"] + 5 * max(0, session["streak"] - 1)
+    else:
+        session["consecutive_wrong"] += 1
+        session["consecutive_correct"] = 0
+        session["streak"] = 0
+        session["mistakes_total"] += 1
+
+    # Snapshot BEFORE adapt_level zeroes the counters - the arc-shape
+    # adaptation below needs the streak that actually just happened.
+    streak_now = session["streak"]
+    wrong_now = session["consecutive_wrong"]
+
+    previous_level = session["level"]
+    new_level, reason = math_engine.adapt_level(
+        session["level"], was_correct,
+        session["consecutive_correct"], session["consecutive_wrong"],
+    )
+    session["level"] = new_level
+    if new_level != previous_level:
+        session["consecutive_correct"] = 0
+        session["consecutive_wrong"] = 0
+
+    # --- arc-shape adaptation -----------------------------------------
+    helper_added = optional_dropped = False
+    if quest is not None:
+        if not was_correct and wrong_now >= 2:
+            helper_added = story_engine.insert_helper_beat(quest)
+        elif was_correct and streak_now >= 3:
+            optional_dropped = story_engine.drop_optional_beat(quest)
+
+    beat_result = {}
+    if quest is not None:
+        beat_result = story_engine.record_result(quest, challenge, was_correct)
+
+    session["history"].append({
+        "topic": challenge["topic"],
+        "prompt": challenge["prompt"],
+        "archetype": challenge.get("archetype"),
+        "level": previous_level,
+        "correct": was_correct,
+    })
+
+    char = challenge.get("character_name", "your friend")
+    is_final = bool(quest and quest["index"] >= len(quest["beats"]) - 1)
+
+    return {
+        "correct": was_correct,
+        "graded_correct": graded,
+        "no_fail": no_fail,
+        "correct_stone_ids": sorted(reveal_ids),
+        "answer_order": challenge.get("answer_order"),
+        "explanation": challenge.get("explanation", ""),
+        "feedback": prompts.feedback_line(was_correct, char),
+        "beat_result": beat_result.get("text", ""),
+        "progress_line": beat_result.get("progress_line", ""),
+        "quest_state": beat_result.get("state", {}),
+        "quest_changes": beat_result.get("changes", {}),
+        "level_changed": session["level"] - previous_level,
+        "adaptation": _adaptation(session, quest, reason, previous_level,
+                                  helper_added, optional_dropped,
+                                  was_correct) if quest else None,
+        "quest": story_engine.summary(quest) if quest else None,
+        "is_final_beat": is_final,
+        "stats": _stats(session),
+        **(_journey(quest) if quest else {}),
+    }
+
+
+def _stats(session: dict) -> dict:
+    total = session["answered"]
+    correct = sum(1 for h in session["history"] if h["correct"])
+    return {
+        "score": session["score"],
+        "level": session["level"],
+        "streak": session["streak"],
+        "answered": total,
+        "correct": correct,
+        "accuracy": round(correct / total * 100) if total else 0,
+        "mistakes_total": session["mistakes_total"],
+    }
+
+
+@app.get("/api/session/{session_id}")
+def get_session(session_id: str):
+    session = _get_session(session_id)
+    quest = session.get("quest")
+    with session["frames_lock"]:
+        frames = [
+            {"id": r["id"], "index": r["index"], "status": r["status"],
+             "image_url": f"/api/frame/{r['id']}/image" if r["image"] else None,
+             "gen_seconds": r["gen_seconds"], "scene_brief": r["scene_brief"],
+             "seeded_from": r.get("seeded_from")}
+            for r in sorted(session["frames"].values(), key=lambda r: r["index"])
+        ]
+    return {
+        "interpretation": session["interpretation"],
+        "stats": _stats(session),
+        "history": session["history"],
+        "quest": story_engine.summary(quest) if quest else None,
+        "goal_text": session.get("goal_text", ""),
+        "destination_source": "child" if session.get("destination") else "inferred",
+        "frames": frames,
+        "frames_max": MAX_FRAMES,
+        "frame_every_beats": FRAME_EVERY_BEATS,
+        "storyline_source": (quest or {}).get("story_source", "template"),
+        "storyline_wait_s": session.get("storyline_wait_s"),
+        **(_journey(quest) if quest else {}),
+    }
+
+
+# ------------------------------------------------------------ static files
+
+if FRONTEND_DIR.exists():
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
+    @app.get("/")
+    def index():
+        return FileResponse(FRONTEND_DIR / "index.html")

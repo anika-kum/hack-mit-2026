@@ -1,0 +1,8 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+# Must be >=1.109: older versions pass a `proxies` kwarg that httpx>=0.28
+# removed, which fails at client construction and looks like "AI is offline".
+openai>=1.109
+python-dotenv==1.0.1
+pydantic==2.9.2
+python-multipart==0.0.9
