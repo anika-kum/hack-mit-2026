@@ -807,16 +807,35 @@ def _frame_prompt(interpretation: dict, theme: str, scene_brief: str | None,
     return base + goal_txt
 
 
-def _data_url_to_file(data_url: str):
-    """data: URL -> a named BytesIO the images API will accept as an upload."""
+def _data_url_to_file(data_url: str, name: str = "previous_frame.png"):
+    """data: URL -> a named BytesIO the images API will accept as an upload.
+
+    The bytes are re-encoded to real PNG first. Muse returns webp by default,
+    and uploading webp bytes under a .png name fails the edit call with
+    "MIME type `image/webp` does not match declared MIME type `image/png`" -
+    which silently kills frame continuity and accessory art.
+    """
     if not data_url or not data_url.startswith("data:"):
         return None
     try:
         raw = base64.b64decode(data_url.split(",", 1)[1])
     except Exception:
         return None
+
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(raw))
+        im = im.convert("RGBA" if "A" in im.getbands() else "RGB")
+        out = io.BytesIO()
+        im.save(out, format="PNG")
+        raw = out.getvalue()
+    except Exception:
+        # Pillow missing or bytes already fine - fall back to as-is rather
+        # than losing the edit entirely.
+        pass
+
     buf = io.BytesIO(raw)
-    buf.name = "previous_frame.png"
+    buf.name = name if name.endswith(".png") else f"{name}.png"
     return buf
 
 
@@ -1031,10 +1050,9 @@ def generate_accessorised_sprite(interpretation: dict,
     client = get_image_client()
     if client is None or not original_sprite or not accessories:
         return None
-    base = _data_url_to_file(original_sprite)
+    base = _data_url_to_file(original_sprite, "character.png")
     if base is None:
         return None
-    base.name = "character.png"
     try:
         resp = client.images.edit(
             model=IMAGE_MODEL, image=base,
