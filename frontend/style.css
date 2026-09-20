@@ -572,3 +572,14 @@ kbd{background:var(--paper);border-radius:6px;padding:2px 7px;font-family:inheri
 .reward-chip{display:inline-flex;align-items:center;gap:5px}
 .reward-chip.ready{animation:rewardReady 1.1s ease-in-out infinite}
 @keyframes rewardReady{0%,100%{transform:none}50%{transform:scale(1.12)}}
+
+/* Any colour the child likes, not just our eight. Asked for directly:
+   "drawing needs to have custom color selection option". */
+.custom-colour{position:relative;display:inline-flex;align-items:center;
+  justify-content:center;width:34px;height:34px;border-radius:50%;
+  border:2.5px solid rgba(201,168,116,.9);background:#fff;cursor:pointer;
+  overflow:hidden;flex-shrink:0}
+.custom-colour span{font-size:17px;pointer-events:none}
+.custom-colour input[type="color"]{position:absolute;inset:-6px;width:calc(100% + 12px);
+  height:calc(100% + 12px);border:0;padding:0;opacity:0;cursor:pointer}
+.custom-colour.sel{box-shadow:0 0 0 3px rgba(244,211,114,.55)}

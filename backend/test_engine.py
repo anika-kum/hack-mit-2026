@@ -13,6 +13,7 @@ import json
 import random
 import re as _re
 import sys
+import time
 
 import app as app_module
 import math_engine
@@ -1111,6 +1112,35 @@ real_frame = prompts.generate_frame
 real_avail = prompts.ai_available
 real_narrate = prompts.narrate_challenge
 prompts.generate_frame = _stub_frame
+
+# PART 10 measures whether the FRAME prefetch hides image latency. The
+# question-restyle call is a different pipeline on a different provider, so
+# it is stubbed out here for the same reason generate_frame is - otherwise
+# this test silently becomes a test of OpenAI's text latency. The restyle has
+# its own bound, asserted immediately below.
+_real_restyle = prompts.restyle_challenge
+prompts.restyle_challenge = (
+    lambda challenge, interpretation, obstacle=None, treasure="", beat_intro="":
+    {"prompt": challenge.get("prompt"),
+     "narrative": challenge.get("narrative")})
+
+# The restyle must NEVER be able to stall a beat, whatever the model does.
+check(app_module.RESTYLE_MAX_BLOCK_S <= 3.0,
+      f"a beat can block {app_module.RESTYLE_MAX_BLOCK_S}s on the question "
+      f"rewrite - gameplay must never wait that long on AI")
+check(prompts.RESTYLE_RETRY_BUDGET_S < app_module.RESTYLE_MAX_BLOCK_S,
+      "the restyle retry budget exceeds the beat's total block budget")
+
+
+class _SlowRestyle:
+    """A model that never answers. The beat must ship anyway."""
+
+    def __call__(self, *a, **kw):
+        time.sleep(30)
+        return {"prompt": "SHOULD NEVER APPEAR", "narrative": "x"}
+
+
+_slow = _SlowRestyle()
 prompts.ai_available = lambda: True
 # This part measures ONE thing: whether a frame render can stall a gameplay
 # request. Per-beat narration is a separate (and pre-existing) ~1.7s LLM call
@@ -1554,6 +1584,69 @@ while ch7 is not None and guard < 16:
     ch7 = None if nx["complete"] else nx["challenge"]
 check(http_typed >= 1, "an algebra quest for ages 9-10 never once asked for a typed answer")
 print(f"  {http_typed} typed questions answered over the real HTTP route.")
+
+# --------------------------------- the question rewrite can never stall a beat
+
+print("\n" + "=" * 72)
+print("PART 13b - the AI question rewrite is bounded, always")
+print("=" * 72)
+
+# A model that simply never answers. The beat must still arrive, on time,
+# carrying the deterministic prompt.
+r = client.post("/api/create-world", json={
+    "text_description": "a fox by a river", "generate_images": False})
+sid_slow = r.json()["session_id"]
+# start-game also collects the prefetched STORYLINE, which is a real ~11s
+# model call and nothing to do with the rewrite. Measure a NEXT-BEAT round
+# trip instead - that is the request a child actually waits on mid-quest.
+d_slow = client.post("/api/start-game", json={
+    "session_id": sid_slow, "topic": "addition", "band": "23"}).json()
+prompts.restyle_challenge = _slow
+# Walk on until a beat that actually CARRIES a question - an interlude has
+# no prompt to rewrite, so it would prove nothing.
+ch_slow, elapsed, hops = None, 0.0, 0
+cur = d_slow["challenge"]
+while hops < 8:
+    hops += 1
+    if is_interlude(cur):
+        nx_slow = next_beat(sid_slow)
+    else:
+        answer_beat(sid_slow, True)
+        t0 = time.time()
+        nx_slow = client.post("/api/next-beat",
+                              json={"session_id": sid_slow}).json()
+        elapsed = max(elapsed, time.time() - t0)
+    if nx_slow.get("complete"):
+        break
+    cur = nx_slow.get("challenge")
+    if cur and not is_interlude(cur):
+        ch_slow = cur
+        break
+check(elapsed < app_module.RESTYLE_MAX_BLOCK_S + 2.0,
+      f"a hung rewrite stalled the beat for {elapsed:.1f}s")
+check(ch_slow is not None, "never reached a beat with a question in it")
+if ch_slow:
+    check(ch_slow["prompt"] and "SHOULD NEVER APPEAR" not in ch_slow["prompt"],
+          f"a hung rewrite leaked into the question: {ch_slow.get('prompt')!r}")
+    check(ch_slow.get("prompt_restyled") in (None, False),
+          "a beat that timed out still claimed it was restyled")
+print(f"  a model that never answers cost the beat {elapsed:.1f}s "
+      f"(cap {app_module.RESTYLE_MAX_BLOCK_S}s) and the child still got a question")
+
+# And a rewrite that changes the maths is thrown away, not shown.
+prompts.restyle_challenge = _real_restyle
+_orig = "7 x 8 = ?"
+for bad, why in [("7 x 9 = ?", "changed a number"),
+                 ("7 x 8 x 1 = ?", "added a number"),
+                 ("The gate wants 56 things. How many?", "gave the answer"),
+                 ("7 times 8", "no question mark"),
+                 ("Pay {char} 7 x 8. How many?", "left a placeholder"),
+                 (" ".join(["word"] * 30) + " 7 8?", "far too long")]:
+    check(prompts._verify_restyle(_orig, bad, 56) is None,
+          f"the verifier accepted a rewrite that {why}: {bad!r}")
+check(prompts._verify_restyle(_orig, "The gate wants 7 bundles of 8 rods. How many rods?", 56),
+      "the verifier rejected a perfectly good rewrite")
+print(f"  {6} bad rewrites rejected, a good one accepted; the maths is never the model's")
 
 # ------------------------------------------------- the CSV question bank
 

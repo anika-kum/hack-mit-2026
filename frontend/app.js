@@ -5022,6 +5022,8 @@ function studioInit() {
       $('studio-swatches').querySelectorAll('.swatch')
         .forEach((s) => s.classList.remove('sel'));
       sw.classList.add('sel');
+      const cw = $('studio-colour') && $('studio-colour').parentElement;
+      if (cw && cw.classList) cw.classList.remove('sel');
     });
     $('studio-swatches').appendChild(sw);
   });
@@ -5051,6 +5053,22 @@ function studioInit() {
   });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) =>
     sc.addEventListener(ev, () => { sBrush.drawing = false; }));
+
+  // ★ Any colour they like. The eight swatches are a shortcut, not a limit.
+  const custom = $('studio-colour');
+  if (custom) {
+    const pick = () => {
+      sBrush.color = custom.value;
+      sBrush.erasing = false;
+      $('studio-eraser').classList.remove('rec');
+      $('studio-swatches').querySelectorAll('.swatch')
+        .forEach((x) => x.classList.remove('sel'));
+      const wrap = custom.parentElement;
+      if (wrap && wrap.classList) wrap.classList.add('sel');
+    };
+    custom.addEventListener('input', pick);
+    custom.addEventListener('change', pick);
+  }
 
   $('studio-size').addEventListener('input', (e) => {
     sBrush.size = Number(e.target.value) || 10;

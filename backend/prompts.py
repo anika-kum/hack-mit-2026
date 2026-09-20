@@ -16,6 +16,7 @@ import json
 import os
 import random
 import re
+import time
 
 # Model IDs verified current 2026-09-19. gpt-image-1 and the gpt-4o line are
 # superseded; gpt-image-1 in particular shuts down 2026-12-01.
@@ -23,9 +24,45 @@ import re
 # for a crayon-drawing aesthetic the difference is near-invisible, and latency
 # is the real constraint in a live demo.
 VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-5.6-luna")
-IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare")
 TEXT_MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-5.6-luna")
 IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "low")
+
+# ---------------------------------------------------- IMAGES: META MUSE 1.0
+#
+# 2026-09-19: image generation moved off OpenAI onto Meta's Muse Image 1.0.
+# TEXT AND VISION STAY ON OPENAI - only pictures changed.
+#
+# Muse is reachable through the OpenAI SDK by pointing base_url at the Meta
+# Model API, so `images.generate` / `images.edit` keep the same shape. Three
+# real differences, all measured against the live API rather than assumed:
+#
+#   * `background` is REJECTED ("unknown parameter"). Muse cannot cut a
+#     transparent sprite for us, and the hero is composited over the painted
+#     world, so a white box behind it is fatal. `_key_out_background()` below
+#     does the cutout ourselves.
+#   * `quality` is REJECTED. There is no cheap/fast tier to ask for.
+#   * The default return is WEBP. `output_format="png"` is honoured, and we
+#     ask for it because the sprite path needs an alpha channel.
+#
+# Falls back to OpenAI images automatically when MODEL_API_KEY is absent, so
+# nothing breaks for someone who only has the OpenAI key.
+META_BASE_URL = os.getenv("META_MODEL_API_BASE", "https://api.meta.ai/v1")
+MUSE_IMAGE_MODEL = os.getenv("META_IMAGE_MODEL", "muse-image-1.0")
+OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare")
+
+
+def _muse_key():
+    key = os.getenv("MODEL_API_KEY") or os.getenv("META_MODEL_API_KEY")
+    return key.strip() if key and key.strip() else None
+
+
+def using_muse() -> bool:
+    return _muse_key() is not None
+
+
+# What the rest of the module calls the image model. Kept as a module-level
+# name because /api/health and the harness both report it.
+IMAGE_MODEL = MUSE_IMAGE_MODEL if _muse_key() else OPENAI_IMAGE_MODEL
 
 # ---------------------------------------------------------- art direction
 #
@@ -86,6 +123,153 @@ def get_client():
         LAST_ERROR = f"OpenAI client init failed: {type(exc).__name__}: {exc}"
         _client = None
     return _client
+
+
+_image_client = None
+_image_client_checked = False
+
+
+def get_image_client():
+    """The client PICTURES go through. Meta Muse when configured, else OpenAI.
+
+    Separate from `get_client()` on purpose: questions, narration and vision
+    stay on OpenAI, and a broken image provider must not take the text layer
+    down with it (or vice versa).
+    """
+    global _image_client, _image_client_checked, LAST_ERROR
+    if _image_client_checked:
+        return _image_client
+    _image_client_checked = True
+    key = _muse_key()
+    if key is None:
+        _image_client = get_client()          # no Muse key: OpenAI as before
+        return _image_client
+    try:
+        import httpx
+        from openai import OpenAI
+        http_client = httpx.Client(
+            headers={"Accept-Encoding": "gzip, deflate"}, timeout=240.0)
+        _image_client = OpenAI(api_key=key, base_url=META_BASE_URL,
+                               http_client=http_client)
+    except Exception as exc:
+        LAST_ERROR = f"Muse client init failed: {type(exc).__name__}: {exc}"
+        _image_client = None
+    return _image_client
+
+
+def _image_kwargs(transparent: bool = False) -> dict:
+    """Per-provider image parameters. Muse rejects `quality` and `background`."""
+    if using_muse():
+        # PNG so the sprite path has an alpha channel to write into; Muse
+        # otherwise returns WEBP.
+        return {"output_format": "png"} if transparent else {}
+    kw = {"quality": IMAGE_QUALITY}
+    if transparent:
+        kw["background"] = "transparent"
+        kw["output_format"] = "png"
+    return kw
+
+
+def _image_mime(raw: bytes) -> str:
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if raw[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    return "image/png"
+
+
+def _data_url(raw: bytes) -> str:
+    return f"data:{_image_mime(raw)};base64," + base64.b64encode(raw).decode()
+
+
+def _image_result(resp, transparent: bool = False) -> str | None:
+    """Pull the picture out of a response, whichever provider produced it."""
+    try:
+        item = resp.data[0]
+    except Exception:
+        return None
+    b64 = getattr(item, "b64_json", None)
+    if not b64:
+        return getattr(item, "url", None)
+    try:
+        raw = base64.b64decode(b64)
+    except Exception:
+        return None
+    if transparent:
+        raw = _key_out_background(raw) or raw
+    return _data_url(raw)
+
+
+# ------------------------------------------------------- the sprite cutout
+#
+# Muse has no transparent-background mode, and the hero is drawn ON TOP of
+# the painted world - a white rectangle behind it is the single most visible
+# way this can look broken. So we cut it out ourselves.
+#
+# Deliberately a FLOOD FILL FROM THE EDGES, not "delete every white pixel":
+# the character's own eyes, teeth and highlights are white too, and a global
+# key eats them. Only background connected to the border goes.
+_CUTOUT_TOLERANCE = int(os.getenv("DQ_CUTOUT_TOLERANCE", "38"))
+
+
+def _key_out_background(raw: bytes) -> bytes | None:
+    """Make the flat border colour transparent. Returns PNG bytes, or None."""
+    try:
+        from PIL import Image
+    except Exception:
+        return None                           # no Pillow: ship it opaque
+    try:
+        import collections
+        im = Image.open(io.BytesIO(raw)).convert("RGBA")
+        w, h = im.size
+        px = im.load()
+
+        # The background colour is whatever dominates the border.
+        edge = collections.Counter()
+        for x in range(0, w, max(1, w // 64)):
+            edge[px[x, 0][:3]] += 1
+            edge[px[x, h - 1][:3]] += 1
+        for y in range(0, h, max(1, h // 64)):
+            edge[px[0, y][:3]] += 1
+            edge[px[w - 1, y][:3]] += 1
+        bg = edge.most_common(1)[0][0]
+
+        def near(c):
+            return (abs(c[0] - bg[0]) + abs(c[1] - bg[1]) + abs(c[2] - bg[2])
+                    <= _CUTOUT_TOLERANCE)
+
+        seen = bytearray(w * h)
+        stack = []
+        for x in range(w):
+            stack.append((x, 0)); stack.append((x, h - 1))
+        for y in range(h):
+            stack.append((0, y)); stack.append((w - 1, y))
+        while stack:
+            x, y = stack.pop()
+            if x < 0 or y < 0 or x >= w or y >= h:
+                continue
+            i = y * w + x
+            if seen[i]:
+                continue
+            c = px[x, y]
+            if c[3] == 0:
+                seen[i] = 1
+                continue
+            if not near(c):
+                continue
+            seen[i] = 1
+            px[x, y] = (c[0], c[1], c[2], 0)
+            stack.append((x + 1, y)); stack.append((x - 1, y))
+            stack.append((x, y + 1)); stack.append((x, y - 1))
+
+        out = io.BytesIO()
+        im.save(out, format="PNG")
+        return out.getvalue()
+    except Exception as exc:
+        note_error(exc)
+        return None
 
 
 # gpt-5.6-luna thinks before it answers, and for storybook prose that thinking
@@ -537,32 +721,25 @@ def _mentions_hero(text: str, interpretation: dict) -> bool:
 
 def generate_world_image(interpretation: dict, theme: str = "storybook", scene_kind: str = "background"):
     """Generate one polished game-world image. Returns a data URL or None."""
-    client = get_client()
+    client = get_image_client()
     if client is None:
         return None
     try:
         size = "1536x1024" if scene_kind == "background" else "1024x1024"
-        kwargs = {}
-        if scene_kind == "character":
-            # A sprite gets composited onto the world, so it MUST be a cutout.
-            # Without this the model paints a full scene behind the character
-            # and the game canvas ends up with a picture-in-picture.
-            kwargs["background"] = "transparent"
-            kwargs["output_format"] = "png"
+        # A sprite is composited onto the world, so it MUST be a cutout. On
+        # OpenAI that is `background="transparent"`; Muse has no such mode, so
+        # `_image_result` keys the flat background out with Pillow instead.
+        transparent = scene_kind == "character"
+        prompt = _world_prompt(interpretation, theme, scene_kind)
+        if transparent and using_muse():
+            prompt += (" The character must sit ALONE on a completely plain, "
+                       "flat, pure white background - no scene, no ground, no "
+                       "shadow, no border, no frame, nothing behind them.")
         resp = client.images.generate(
-            model=IMAGE_MODEL,
-            prompt=_world_prompt(interpretation, theme, scene_kind),
-            size=size,
-            quality=IMAGE_QUALITY,
-            n=1,
-            **kwargs,
+            model=IMAGE_MODEL, prompt=prompt, size=size, n=1,
+            **_image_kwargs(transparent),
         )
-        item = resp.data[0]
-        b64 = getattr(item, "b64_json", None)
-        if b64:
-            return f"data:image/png;base64,{b64}"
-        url = getattr(item, "url", None)
-        return url
+        return _image_result(resp, transparent)
     except Exception as exc:
         note_error(exc)
         return None
@@ -655,7 +832,7 @@ def generate_frame(interpretation: dict, theme: str = "storybook",
     sequence look like one continuous world. `progress` (0-1) is how far along
     the journey this frame sits, and decides how close the destination looks.
     """
-    client = get_client()
+    client = get_image_client()
     if client is None:
         return None
 
@@ -666,18 +843,12 @@ def generate_frame(interpretation: dict, theme: str = "storybook",
         if prev is not None:
             resp = client.images.edit(
                 model=IMAGE_MODEL, image=prev, prompt=prompt,
-                size="1536x1024", quality=IMAGE_QUALITY, n=1,
-            )
+                size="1536x1024", n=1, **_image_kwargs())
         else:
             resp = client.images.generate(
                 model=IMAGE_MODEL, prompt=prompt,
-                size="1536x1024", quality=IMAGE_QUALITY, n=1,
-            )
-        item = resp.data[0]
-        b64 = getattr(item, "b64_json", None)
-        if b64:
-            return f"data:image/png;base64,{b64}"
-        return getattr(item, "url", None)
+                size="1536x1024", n=1, **_image_kwargs())
+        return _image_result(resp)
     except Exception as exc:
         note_error(exc)
         # A failed EDIT must not cost the child their frame - fall back to a
@@ -689,11 +860,10 @@ def generate_frame(interpretation: dict, theme: str = "storybook",
                     prompt=_frame_prompt(interpretation, theme, scene_brief,
                                          goal_text, continuing=False,
                                          progress=progress),
-                    size="1536x1024", quality=IMAGE_QUALITY, n=1,
-                )
-                b64 = getattr(resp.data[0], "b64_json", None)
-                if b64:
-                    return f"data:image/png;base64,{b64}"
+                    size="1536x1024", n=1, **_image_kwargs())
+                got = _image_result(resp)
+                if got:
+                    return got
             except Exception as exc2:
                 note_error(exc2)
         return None
@@ -858,7 +1028,7 @@ def generate_accessorised_sprite(interpretation: dict,
     accessorised one - see the note at the top of this section. `accessories`
     is the full cumulative list, so nothing earned ever gets dropped.
     """
-    client = get_client()
+    client = get_image_client()
     if client is None or not original_sprite or not accessories:
         return None
     base = _data_url_to_file(original_sprite)
@@ -867,20 +1037,10 @@ def generate_accessorised_sprite(interpretation: dict,
     base.name = "character.png"
     try:
         resp = client.images.edit(
-            model=IMAGE_MODEL,
-            image=base,
+            model=IMAGE_MODEL, image=base,
             prompt=_accessory_prompt(interpretation, accessories),
-            size="1024x1024",
-            quality=IMAGE_QUALITY,
-            background="transparent",
-            output_format="png",
-            n=1,
-        )
-        item = resp.data[0]
-        b64 = getattr(item, "b64_json", None)
-        if b64:
-            return f"data:image/png;base64,{b64}"
-        return getattr(item, "url", None)
+            size="1024x1024", n=1, **_image_kwargs(transparent=True))
+        return _image_result(resp, transparent=True)
     except Exception as exc:
         note_error(exc)
         return None
@@ -909,6 +1069,8 @@ def generate_accessorised_sprite(interpretation: dict,
 # sum ('2 x 12 = ?' is 5 words; naming the scene costs about ten more).
 # The question box is full-width, so 16 still fits on one line.
 RESTYLE_MAX_WORDS = 16
+# Only retry a rejected rewrite if the first call came back inside this.
+RESTYLE_RETRY_BUDGET_S = float(os.getenv("DQ_RESTYLE_RETRY_BUDGET_S", "1.2"))
 
 _RESTYLE_SYSTEM = """You rewrite a maths question so it belongs to the story a child is playing.
 
@@ -992,6 +1154,10 @@ def restyle_challenge(challenge: dict, interpretation: dict,
     )
     messages = [{"role": "system", "content": _RESTYLE_SYSTEM},
                 {"role": "user", "content": scene}]
+    # A beat is only allowed a couple of seconds of model time in total (see
+    # app.RESTYLE_MAX_BLOCK_S). Spend it on a retry only if the first reply
+    # left room for one.
+    started = time.time()
     # Up to two goes. Most rejections are one fixable slip - a stray "each",
     # three words over - and telling the model exactly what it broke fixes it
     # far more often than not. The second call only happens when the first
@@ -1010,7 +1176,7 @@ def restyle_challenge(challenge: dict, interpretation: dict,
             out["prompt"] = good
             out["restyled"] = True
             return out
-        if attempt == 0:
+        if attempt == 0 and (time.time() - started) < RESTYLE_RETRY_BUDGET_S:
             messages += [
                 {"role": "assistant", "content": candidate},
                 {"role": "user", "content": (

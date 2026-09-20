@@ -994,8 +994,37 @@ def obstacles_for_setting(setting: str, objects=()) -> list[str]:
     return out
 
 
-def obstacle_spec(kind: str) -> dict:
-    return OBSTACLES.get(kind) or OBSTACLES[DEFAULT_OBSTACLE]
+# Playtest: "the stories dont make coherent sense. there are repeating
+# phrases like 'And an entirely straight face...'". The cause was here: each
+# obstacle had exactly ONE cleared line, so meeting the same obstacle twice
+# in a quest printed it twice, word for word. Every obstacle now has spare
+# lines and `obstacle_spec` rotates through them.
+OBSTACLE_VARIANTS = {
+    "cleared": [
+        "{char} is over, and does not look back at it once.",
+        "Across. {char} lets out a breath that has been waiting a while.",
+        "Done - and {char} looks quietly pleased about it.",
+        "That is behind them now. {char} walks on.",
+    ],
+    "blocked": [
+        "The way on stops here, and it does not look negotiable.",
+        "{char} comes to a halt. This one will take some working out.",
+        "Here is the problem, then - right across the path.",
+    ],
+}
+
+
+def obstacle_spec(kind: str, variant: int = 0) -> dict:
+    """The obstacle, with its prose rotated so a repeat never reads identically."""
+    spec = OBSTACLES.get(kind) or OBSTACLES[DEFAULT_OBSTACLE]
+    if not variant:
+        return spec
+    spec = dict(spec)
+    for field in ("blocked", "cleared"):
+        pool = OBSTACLE_VARIANTS.get(field) or []
+        if pool:
+            spec[field] = pool[(variant - 1) % len(pool)]
+    return spec
 
 
 def assign_obstacles(beats: list[dict], rng: random.Random,
@@ -1552,7 +1581,11 @@ def obstacle_for(quest: dict, beat: dict, ctx: dict | None = None) -> dict:
     busywork, correctly.
     """
     kind = beat.get("obstacle") or DEFAULT_OBSTACLE
-    spec = obstacle_spec(kind)
+    # How many earlier stops used this same obstacle. The FIRST time a child
+    # meets a chasm they get the bespoke line; a repeat gets a different one.
+    seen = sum(1 for b in quest.get("beats", [])[:quest.get("index", 0)]
+               if b.get("obstacle") == kind)
+    spec = obstacle_spec(kind, seen)
     ctx = ctx or _ctx(quest)
     gated = not beat.get("no_question")
     complexity = quest.get("complexity", 1)
@@ -1573,6 +1606,7 @@ def obstacle_for(quest: dict, beat: dict, ctx: dict | None = None) -> dict:
         # is the thing standing between the child and the crossing:
         # "Pay the gate: 2 dimes and 2 quarters. How many cents?"
         "toll": spec.get("toll", "Pay the toll"),
+        "variant": seen,
         "terrain": list(spec.get("terrain", ())),
         "drama": int(spec.get("drama", 1)),
         "title": spec.get("title", "The Crossing"),

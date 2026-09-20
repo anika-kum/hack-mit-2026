@@ -127,6 +127,11 @@ STORYLINE_BUDGET_S = float(os.getenv("DQ_STORYLINE_BUDGET_S", "30"))
 STORYLINE_MAX_BLOCK_S = float(os.getenv("DQ_STORYLINE_MAX_BLOCK_S", "18"))
 # How long a frame render will wait for the frame it is seeded from.
 FRAME_SEED_WAIT_S = float(os.getenv("DQ_FRAME_SEED_WAIT_S", "40"))
+# The most a beat will EVER wait for the model to re-word its question into
+# the story. Past this the deterministic prompt ships and the thread is left
+# to finish into the void. Gameplay never blocks on AI - that rule applies to
+# the question text exactly as it applies to the art.
+RESTYLE_MAX_BLOCK_S = float(os.getenv("DQ_RESTYLE_MAX_BLOCK_S", "2.5"))
 
 # ------------------------------------------------------------ accessories
 # "every 5 problems u get right, you should be able to go and add an
@@ -726,18 +731,22 @@ def _issue_beat(session: dict) -> dict | None:
     # are provably identical and the answer is not given away. A rejected or
     # unavailable rewrite leaves the deterministic prompt in place, which is
     # exactly what happens with no API key.
-    if challenge.get("question_type") != "interlude":
+    if challenge.get("question_type") != "interlude" and prompts.ai_available():
+        # Bounded, like every other AI call here: if the model is slow the
+        # child gets the deterministic prompt and plays on. The worker is
+        # left to finish and its result is simply dropped.
+        job = _POOL.submit(
+            prompts.restyle_challenge,
+            challenge, session["interpretation"],
+            challenge.get("obstacle"), (quest or {}).get("treasure", ""),
+            (challenge.get("beat") or {}).get("intro", ""),
+        )
         try:
-            styled = prompts.restyle_challenge(
-                challenge, session["interpretation"],
-                obstacle=challenge.get("obstacle"),
-                treasure=(quest or {}).get("treasure", ""),
-                beat_intro=(challenge.get("beat") or {}).get("intro", ""),
-            )
+            styled = job.result(timeout=RESTYLE_MAX_BLOCK_S)
             challenge["prompt"] = styled.get("prompt") or challenge["prompt"]
             challenge["narrative"] = styled.get("narrative") or challenge["narrative"]
             challenge["prompt_restyled"] = bool(styled.get("restyled"))
-        except Exception as exc:          # never costs the child their beat
+        except Exception as exc:          # timeout included - never a stall
             prompts.note_error(exc)
     session["challenge"] = challenge
 
