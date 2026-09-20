@@ -111,27 +111,28 @@
 </section>
 
 <!-- ───────────────────────── GAME ─────────────────────────
-     FULL-BLEED. The stage fills the viewport; the painted world is the
-     whole screen, and the UI is two RESERVED ZONES pinned to it:
+     The stage fills the viewport MINUS the story scroll, which sits in
+     its own column on the right — OFF the art, so the prose can never
+     cover the painted world or the geometry shapes. On the stage the UI
+     is two RESERVED ZONES pinned to it:
 
-        #zone-top       narration + chrome        top of the screen
+        #zone-top       HUD + journey trail       top of the screen
         (middle band)   the world and the hero    NOTHING is pinned here
         #zone-question  the question, dominant    lower third
 
      Those two zones are `position:absolute` against #stage with hard
      height caps, and the hero's play band is computed at runtime from
      their measured rects (syncSafeZones in app.js) — so the character
-     physically cannot walk under either of them, and the question can
-     never be covered by the story text. This is the non-overlap
-     guarantee that a previous pass got by putting the answers BELOW the
-     art; we keep the guarantee and put them back on the art. -->
+     physically cannot walk under either of them. The storyline used to
+     be a third overlay up top; it now lives in #story-scroll beside the
+     stage, which is the non-overlap guarantee for the prose. -->
 <section id="screen-game" class="screen screen-stage">
   <div class="stage" id="stage">
     <canvas id="game-canvas" width="1280" height="720"></canvas>
     <div class="page-turn" id="page-turn" aria-hidden="true"><i class="sheet"></i></div>
     <div class="stage-scrim" aria-hidden="true"></div>
 
-    <!-- ════ ZONE TOP — chrome, then the story line, which STAYS ════ -->
+    <!-- ════ ZONE TOP — chrome only; the story lives in the scroll ════ -->
     <div class="zone zone-top" id="zone-top">
       <div class="hud">
         <button class="btn btn-ghost btn-tiny" data-goto="screen-topic">‹ Menu</button>
@@ -166,14 +167,6 @@
         </div>
       </div>
 
-      <!-- ★ THE STORY LINE. Floats at the top and STAYS there. ★ -->
-      <div class="story-ribbon" id="story-ribbon">
-        <span class="story-avatar" id="story-avatar">🦊</span>
-        <div class="story-lines">
-          <span class="story-eyebrow" id="story-eyebrow">Chapter 1</span>
-          <p id="story-text">Loading your adventure…</p>
-        </div>
-      </div>
     </div>
 
     <div class="toast" id="toast" hidden></div>
@@ -315,6 +308,22 @@
       </div>
     </div>
   </div>
+
+  <!-- ════ ★ THE STORY SCROLL ★ ════
+       The storyline, OFF the art. An old parchment scroll in its own
+       column beside the stage; every new line makes it unroll again.
+       aria-live so screen readers hear the story as it arrives. -->
+  <aside class="story-scroll" id="story-scroll" aria-live="polite">
+    <div class="scroll-roll scroll-roll-top" aria-hidden="true"></div>
+    <div class="scroll-parchment" id="scroll-parchment">
+      <div class="scroll-head">
+        <span class="story-avatar" id="story-avatar">🦊</span>
+        <span class="story-eyebrow" id="story-eyebrow">Chapter 1</span>
+      </div>
+      <p id="story-text">Loading your adventure…</p>
+    </div>
+    <div class="scroll-roll scroll-roll-bottom" aria-hidden="true"></div>
+  </aside>
 </section>
 
 <script src="/static/app.js"></script>

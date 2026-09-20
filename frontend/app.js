@@ -2417,11 +2417,11 @@ function setTimeOfDay(t) {
 }
 
 /* ── ★ THE STORY LINE ★ ────────────────────────────────────────────
-   It used to be a card that appeared OVER the question for about three
-   seconds and then vanished — too brief to read and in the way while it
-   lasted. Now the prose floats to the top of the screen and STAYS there
-   for the whole beat, in its own region, while the question sits in its
-   own region below. Two persistent zones; neither can cover the other.
+   It used to be a ribbon floating OVER the painting, where it covered
+   the geometry shapes and read at status-strip size. The prose now
+   lives in #story-scroll — a parchment scroll in its own column beside
+   the stage — so it can never cover the art, and every new line makes
+   the scroll unroll again.
 
    The `ms` argument is kept so every existing call site still works, but
    it no longer hides anything — it only decides whether this line is
@@ -2429,19 +2429,18 @@ function setTimeOfDay(t) {
 function showNarration(text, badge, ms) {
   const txt = String(text == null ? '' : text).trim();
   if (!txt) return;
-  const ribbon = $('story-ribbon');
+  const scroll = $('story-scroll');
   const body = $('story-text');
   const eyebrow = $('story-eyebrow');
   if (body) body.textContent = txt;
   if (eyebrow) eyebrow.textContent = badge || 'Story';
-  if (ribbon && ribbon.classList) {
-    ribbon.classList.remove('fresh');
-    void ribbon.offsetWidth;                 // restart the little settle
-    ribbon.classList.add('fresh');
+  const parchment = $('scroll-parchment');
+  if (parchment) parchment.scrollTop = 0;    // a long line starts at its top
+  if (scroll && scroll.classList) {
+    scroll.classList.remove('fresh');
+    void scroll.offsetWidth;                 // restart the unroll
+    scroll.classList.add('fresh');
   }
-  // Keep the walkable band honest: a two-line story pushes the ribbon
-  // taller, which must push the hero down rather than under it.
-  try { syncSafeZones(); } catch (e) { /* ignore */ }
   speak(txt);
 }
 
