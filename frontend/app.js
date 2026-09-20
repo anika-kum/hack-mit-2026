@@ -1708,13 +1708,32 @@ const OB_PAINTER = {
     gctx.lineTo(st.x + r * 0.1, st.y + r * 0.4);
     gctx.stroke();
   },
-  /* fallen logs, seen end-on: a tube to vault */
+  /* a trunk lying ACROSS the path, end-grain showing, high enough to vault */
   logs(st, i) {
     const { art, r } = obStationBase(st, i);
-    rrect(st.x - r * 0.42, st.y - r * 0.95, r * 0.84, r * 1.9, r * 0.36);
-    fillStroke(st.done ? art.done : art.fill,
-               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.12));
-    circle(st.x, st.y - r * 0.62, r * 0.3, art.done, art.edge, 2);
+    const fill = st.done ? art.done : art.fill;
+    const edge = st.done ? art.doneEdge : art.edge;
+    const w = r * 2.4, h = r * 0.95;
+    // the trunk, lying left-to-right
+    rrect(st.x - w / 2, st.y - h / 2, w, h, h / 2);
+    fillStroke(vGrad(st.y - h / 2, st.y + h / 2, fill, darken(fill, 0.78)),
+               edge, Math.max(2.5, r * 0.12));
+    // end-grain rings on the near end, so it reads as a cut trunk
+    ellipse(st.x + w / 2 - h * 0.1, st.y, h * 0.42, h * 0.48, fill, edge, 2.2);
+    ellipse(st.x + w / 2 - h * 0.1, st.y, h * 0.2, h * 0.24, null, edge, 1.6);
+    // a couple of bark lines along the top
+    gctx.save();
+    gctx.globalAlpha = 0.4;
+    gctx.strokeStyle = darken(fill, 0.7);
+    gctx.lineWidth = Math.max(1.4, r * 0.06);
+    [-0.18, 0.1].forEach((o) => {
+      gctx.beginPath();
+      gctx.moveTo(st.x - w * 0.42, st.y + h * o);
+      gctx.lineTo(st.x + w * 0.28, st.y + h * o);
+      gctx.stroke();
+    });
+    gctx.restore();
+    gctx.globalAlpha = 1;
     if (st.done) obDrawDone(st, r);
   },
   /* one long trunk to balance along */
@@ -1753,18 +1772,50 @@ const OB_PAINTER = {
     });
     if (st.done) obDrawDone(st, r);
   },
-  /* two cliff edges with nothing in between */
+  /* two cliff edges with a REAL void between them */
   gap(st, i) {
     const { art, r } = obStationBase(st, i);
-    const lip = i === 0 ? 1 : -1;
+    const sts = obState.stations;
+    // paint the void once, from the first station, so it sits behind both lips
+    if (i === 0 && sts.length > 1) {
+      const x0 = st.x + r * 0.9, x1 = sts[sts.length - 1].x - r * 0.9;
+      const top = st.y - r * 0.6;
+      const g = gctx.createLinearGradient(0, top, 0, play.bottom);
+      g.addColorStop(0, 'rgba(46,36,54,.92)');
+      g.addColorStop(0.55, 'rgba(46,36,54,.72)');
+      g.addColorStop(1, 'rgba(46,36,54,.10)');
+      gctx.save();
+      gctx.beginPath();
+      gctx.moveTo(x0, top);
+      gctx.quadraticCurveTo((x0 + x1) / 2, top + r * 0.5, x1, top);
+      gctx.lineTo(x1, play.bottom);
+      gctx.lineTo(x0, play.bottom);
+      gctx.closePath();
+      gctx.fillStyle = g;
+      gctx.fill();
+      gctx.restore();
+    }
+    const lip = i === 0 ? 1 : -1;      // which way the cliff face points
     gctx.beginPath();
-    gctx.moveTo(st.x + lip * r * 1.4, st.y - r * 0.8);
-    gctx.lineTo(st.x - lip * r * 0.2, st.y - r * 0.5);
-    gctx.lineTo(st.x - lip * r * 0.1, st.y + r * 1.6);
-    gctx.lineTo(st.x + lip * r * 1.4, st.y + r * 1.6);
+    gctx.moveTo(st.x + lip * r * 2.2, st.y - r * 0.75);
+    gctx.lineTo(st.x - lip * r * 0.9, st.y - r * 0.55);
+    gctx.lineTo(st.x - lip * r * 0.75, play.bottom);
+    gctx.lineTo(st.x + lip * r * 2.2, play.bottom);
     gctx.closePath();
-    fillStroke(st.done ? art.done : art.fill,
-               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.12));
+    fillStroke(vGrad(st.y - r, play.bottom, st.done ? art.done : art.fill,
+                     darken(st.done ? art.done : art.fill, 0.7)),
+               st.done ? art.doneEdge : art.edge, Math.max(2.5, r * 0.13));
+    // a grass lip so it reads as ground, not a plank
+    gctx.save();
+    gctx.globalAlpha = 0.5;
+    gctx.beginPath();
+    gctx.moveTo(st.x + lip * r * 2.2, st.y - r * 0.75);
+    gctx.lineTo(st.x - lip * r * 0.9, st.y - r * 0.55);
+    gctx.lineWidth = Math.max(3, r * 0.2);
+    gctx.strokeStyle = '#8FBF74';
+    gctx.stroke();
+    gctx.restore();
+    gctx.globalAlpha = 1;
     if (st.done) obDrawDone(st, r);
   },
   /* a bridge missing its planks */
@@ -1885,12 +1936,18 @@ const OB_PAINTER = {
   },
 };
 
+/* Which obstacles are genuinely a LINE of things to follow, and which are
+   just several separate objects. Drawing the dotted trail on all of them is
+   what made a rope bridge and a row of logs look like the same beat - the
+   team's "just going in a straight line and going on grey circles". */
+const OB_LINKED = { stones:1, water:1, boat:1, logcross:1, bridge:1,
+                    ropebridge:1, rocks:1 };
+
 function drawObstacle() {
   if (!obState.stations.length) return;
   const visual = obState.visual;
   const painter = OB_PAINTER[visual] || OB_PAINTER.stones;
-  // a link line, except where the obstacle is literally a void
-  if (visual !== 'gap' && visual !== 'squeeze') obLinkPath(true);
+  if (OB_LINKED[visual]) obLinkPath(true);
 
   obState.stations.forEach((st, i) => {
     if (st.pop > 0) st.pop = Math.max(0, st.pop - 0.04);
