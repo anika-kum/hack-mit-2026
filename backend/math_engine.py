@@ -634,6 +634,23 @@ def _plural(n, one, many=None) -> str:
     return one if abs(n) == 1 else (many or f"{one}s")
 
 
+def _singular(word: str) -> str:
+    """'berries' -> 'berry', 'rods' -> 'rod'. Good enough for a story noun."""
+    w = str(word or "").strip()
+    if len(w) > 3 and w.endswith("ies"):
+        return w[:-3] + "y"
+    if len(w) > 3 and w.endswith("ses"):
+        return w[:-2]
+    if len(w) > 1 and w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
+def _count(n, noun) -> str:
+    """'1 berry' / '4 berries', given the PLURAL form of the noun."""
+    return f"{n} {noun if abs(n) != 1 else _singular(noun)}"
+
+
 # ================================================== THE CONCEPT GRADE TABLE
 #
 # MIRRORED FROM THE CSV BANK. Each entry is the set of school grades in which
@@ -820,7 +837,8 @@ def _k_add_2(level, band, rng, char, setting):
     total = a + b
     noun = story_noun("berries")
     return _q(f"{a} + {b} = ?", f"{a} + {b} = {total}.", total,
-              story=_framed(story_toll(), f"{a} {noun} and {b} more. How many?"),
+              story=_framed(story_toll(),
+                            f"{_count(a, noun)} and {b} more. How many?"),
               spread=max(2, total // 7 + 2),
               props=[_prop("basket", 0.30, 0.36, 1.1, str(a)),
                      _prop("basket", 0.70, 0.36, 1.1, str(b))],
@@ -867,7 +885,8 @@ def _k_sub_2(level, band, rng, char, setting):
     left = a - b
     noun = story_noun("lanterns")
     return _q(f"{a} - {b} = ?", f"{a} - {b} = {left}.", left,
-              story=_framed(story_toll(), f"{a} {noun}, {b} lost. How many left?"),
+              story=_framed(story_toll(),
+                            f"{_count(a, noun)}, {b} lost. How many left?"),
               spread=max(2, left // 6 + 2),
               props=[_prop("lantern", 0.32, 0.34, 1.2, str(a)),
                      _prop("lantern", 0.68, 0.34, 1.2, f"-{b}")],
@@ -923,7 +942,8 @@ def _k_money_add_cents(level, band, rng, char, setting):
         while a + b > 14 and b > 1:
             b -= 1
     total = a + b
-    return _q(_framed(story_toll(), f"{a} cents and {b} more. How many cents?"),
+    return _q(_framed(story_toll(),
+                      f"{_count(a, 'cents')} and {b} more. How many cents?"),
               f"{a} + {b} = {total} cents.", total,
               spread=max(2, total // 5 + 2), unit="c",
               props=[_prop("sack", 0.30, 0.38, 1.1, f"{a}c"),
@@ -951,7 +971,8 @@ def _k_mul_2(level, band, rng, char, setting):
     total = a * b
     noun = story_noun("apples")
     return _q(f"{a} x {b} = ?", f"{a} x {b} = {total}.", total,
-              story=_framed(story_toll(), f"{a} bundles of {b} {noun}. How many?"),
+              story=_framed(story_toll(),
+                            f"{_count(a, 'bundles')} of {b} {noun}. How many?"),
               spread=max(3, total // 7 + 2),
               props=_cluster("basket", min(a, 8), 0.5, 0.33, str(b), 0.85,
                              cols=4, step_x=0.075),
