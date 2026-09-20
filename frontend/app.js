@@ -303,13 +303,30 @@ if (SR) {
    spoken — on demand, from a 🔊 button beside the story and beside the
    question, rather than narrating on its own. */
 
+// Held at module scope so the utterance can't be garbage-collected mid-
+// speech — a browser-dependent bug that makes speak() silently produce no
+// sound if the SpeechSynthesisUtterance was only a local variable.
+let liveUtterance = null;
+
 function speak(text) {
   if (!text || !('speechSynthesis' in window)) return;
   try {
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(String(text).replace(/[*_#]/g, ''));
-    u.rate = 0.92; u.pitch = 1.2; u.volume = 1;
-    window.speechSynthesis.speak(u);
+    const synth = window.speechSynthesis;
+    const go = () => {
+      const u = new SpeechSynthesisUtterance(String(text).replace(/[*_#]/g, ''));
+      u.rate = 0.92; u.pitch = 1.2; u.volume = 1;
+      liveUtterance = u;
+      synth.speak(u);
+    };
+    // Cancelling right before speaking is a known Chrome trigger for the
+    // new utterance being silently dropped — only cancel when something
+    // is actually queued, and give the cancel a beat to land first.
+    if (synth.speaking || synth.pending) {
+      synth.cancel();
+      setTimeout(go, 60);
+    } else {
+      go();
+    }
   } catch (e) { /* speech is a nice-to-have, never fatal */ }
 }
 function hushSpeech() {
