@@ -1641,7 +1641,8 @@ for bad, why in [("7 x 9 = ?", "changed a number"),
                  ("The gate wants 56 things. How many?", "gave the answer"),
                  ("7 times 8", "no question mark"),
                  ("Pay {char} 7 x 8. How many?", "left a placeholder"),
-                 (" ".join(["word"] * 30) + " 7 8?", "far too long")]:
+                 (" ".join(["word"] * (prompts.RESTYLE_MAX_WORDS + 4))
+                  + " 7 8?", "far too long")]:
     check(prompts._verify_restyle(_orig, bad, 56) is None,
           f"the verifier accepted a rewrite that {why}: {bad!r}")
 check(prompts._verify_restyle(_orig, "The gate wants 7 bundles of 8 rods. How many rods?", 56),

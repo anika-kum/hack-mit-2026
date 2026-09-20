@@ -670,7 +670,13 @@ def _world_prompt(interpretation: dict, theme: str, scene_kind: str,
         return (
             "A single full-body game character sprite on a COMPLETELY TRANSPARENT "
             "background - no scenery, no ground, no sky, no backdrop of any kind, "
-            "just the character cut out. Facing the viewer, centered, brave and "
+            "just the character cut out. "
+            # "facing the viewer, centered" produced a stiff T-pose with both
+            # arms straight out every time. Ask for an adventuring stance.
+            "Shown in a relaxed three-quarter adventuring stance, mid-stride as "
+            "if setting off, weight on one foot, arms relaxed and natural at "
+            "their sides or holding a strap - NEVER a stiff symmetrical T-pose, "
+            "never both arms straight out. Full body head to toe, brave and "
             f"likeable. The character is: {hero}. Style: {style}. {ART_DIRECTION}. "
             "Thick confident outlines, no text or words anywhere."
         )
@@ -1086,29 +1092,48 @@ def generate_accessorised_sprite(interpretation: dict,
 # A story-framed question legitimately needs a few more words than a bare
 # sum ('2 x 12 = ?' is 5 words; naming the scene costs about ten more).
 # The question box is full-width, so 16 still fits on one line.
-RESTYLE_MAX_WORDS = 16
+# Must stay >= the word budget quoted in _RESTYLE_SYSTEM. When this was 16 and
+# the prompt allowed 30, every characterful rewrite was silently thrown away
+# and the child saw the bare sum ("10 x 2 = ?") instead - which read as the
+# game asking the same dull question over and over.
+RESTYLE_MAX_WORDS = int(os.getenv("DQ_RESTYLE_MAX_WORDS", "32"))
 # Only retry a rejected rewrite if the first call came back inside this.
-RESTYLE_RETRY_BUDGET_S = float(os.getenv("DQ_RESTYLE_RETRY_BUDGET_S", "1.2"))
+RESTYLE_RETRY_BUDGET_S = float(os.getenv("DQ_RESTYLE_RETRY_BUDGET_S", "2.0"))
 
-_RESTYLE_SYSTEM = """You rewrite a maths question so it belongs to the story a child is playing.
+_RESTYLE_SYSTEM = """You are a brilliant, playful children's storyteller. A child is playing an
+adventure and has hit an obstacle. Turn a dry maths question into a moment in
+THEIR story - something they would actually want to read.
 
-You are given: the scene, the character, the obstacle in their way, and a MATHS QUESTION.
-Rewrite the question so it is about that scene and that obstacle.
+You get: the scene, the character, the obstacle, and a MATHS QUESTION.
 
-ABSOLUTE RULES - breaking any one of them makes your answer useless and it is thrown away:
-1. NUMBERS: use exactly the numbers in the original, every one of them, and no others. Copy them digit for digit. Never add a number (not even "1" or "each"), never drop one, never change one. Do not write any number as a word.
+TWO HARD RULES (everything else is your creative playground):
+1. NUMBERS: use exactly the numbers given, every one, and no others. Digit for
+   digit. Never add a number (not even "1" or "each"), never drop or change one.
+   Never spell a number as a word.
 2. NEVER state, compute or hint at the answer.
-3. LENGTH: 16 words MAXIMUM, including the question. Count them. Shorter is better. Do not name the character if you are close to the limit.
-4. End with "?" and make it answerable with one number.
-5. Plain words a child can read. No curly braces, no quotes, no markdown, no units the original did not use.
 
-GOOD (original "2 x 12 = ?", scene: a gate, collecting rods):
-  The gate wants 2 bundles of 12 rods. How many rods?
-GOOD (original "4 pennies and 2 nickels. How many cents?"):
-  Pay the gate 4 pennies and 2 nickels. How many cents?
-BAD - added a number: The gate wants 2 bundles of 12 rods each. How many 1 total?
+NOW THE FUN PART - be genuinely creative:
+- BE DIFFERENT EVERY SINGLE TIME. Vary your sentence shape, your verbs, your
+  imagery, who is speaking. If your last answer started "The gate wants...",
+  this one must not.
+- Use the specific scene and obstacle. A troll guarding a bridge, a river spirit
+  counting stones, a rusted lock, a ferryman, a rockfall, a stubborn goat. Give
+  things personality. Let them talk.
+- Sound like a story, not a worksheet. Urgency, mischief, wonder, a tiny joke.
+- Up to 30 words. Use them if they buy character; be short if short is punchier.
+- End with a question answerable by one number. Plain words a child can read.
+- No markdown, no quotes around your answer, no emoji.
+
+GOOD, note how different these are from each other:
+  original "2 x 12 = ?" -> The bridge troll grins: 2 bundles, 12 rods in each. How many rods must you hand over?
+  original "7 x 8 = ?" -> Every lantern needs 8 drops of oil, and 7 lanterns are dark. How many drops?
+  original "30 / 4" -> The ferryman can only take 4 at a time. With 30 waiting, how many full trips?
+  original "4 pennies and 2 nickels. How many cents?" -> The toll goat chews your 4 pennies and 2 nickels. How many cents did it just eat?
+  original "14 - 6 = ?" -> A gust snatches 6 of your 14 feathers into the gorge. How many are left?
+
+BAD - added a number: 2 bundles of 12 rods each. How many 1 total?
 BAD - gave the answer: The gate wants 24 rods, which is 2 bundles of 12.
-BAD - too long: Bun Bun the brave little bunny needs to tie together 2 whole bundles of 12 rods to pay the gate-keeper. How many rods is that?
+BAD - boring, sounds like every other one: The gate wants 2 bundles of 12 rods. How many rods?
 
 Return ONLY the rewritten question."""
 

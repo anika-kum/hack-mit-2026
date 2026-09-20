@@ -2137,6 +2137,17 @@ async function startGame(topic) {
       }
     }
   } catch (err) {
+    // Sessions live in server memory, so a restart (or a long-idle tab)
+    // orphans the id the browser is holding. Never dead-end a child on that:
+    // send them back to the studio to make a new world instead of showing an
+    // error they cannot act on.
+    if (/session not found/i.test(err && err.message || '')) {
+      state.sessionId = null;
+      try { localStorage.removeItem('dq_session'); } catch (_) {}
+      alert("Let's start a fresh adventure! Draw your hero again. ✨");
+      show('screen-create');
+      return;
+    }
     alert(`Could not start that adventure: ${err.message}`);
   }
 }
