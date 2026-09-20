@@ -2199,7 +2199,14 @@ function finishQuest(data) {
   showToast('Quest complete! 🎉', questTitle() || '', 'good');
   sfxWin();
   setTimeout(() => showNarration(ep, 'The End', 7000), 900);
-  setTimeout(() => { show('screen-topic'); running = false; }, 8200);
+  // ★ The badge. Finishing the WHOLE adventure earns one, and the share
+  // screen is where it is handed over. If anything about it fails we fall
+  // back to the old behaviour rather than trapping the child on a dead end.
+  setTimeout(() => {
+    openShare(data).then((shown) => {
+      if (!shown) { show('screen-topic'); running = false; }
+    }).catch(() => { show('screen-topic'); running = false; });
+  }, 4200);
 }
 
 /* Tapping is the way in. Walking still works wherever walking is the
@@ -5249,3 +5256,302 @@ function drawWorn(cx, groundY, drawnH, drawnW) {
     gctx.restore();
   });
 }
+
+/* ═══════════ 21. ★ THE SHARE SCREEN ★ ═══════════
+
+   Finishing a WHOLE adventure earns a badge named after what they actually
+   did - "Fraction Forest Explorer", "Multiplication Master" - and a card
+   showing the drawing they made at the start beside the character the AI
+   turned it into.
+
+   Two deliberate decisions:
+
+   * IT IS NOT A SOCIAL WIDGET. No auto-post, no account, no tracking pixel.
+     A child's drawing and a child's name leave this machine only when a
+     grown-up presses the button and chooses who to send it to. The default
+     action opens a pre-written email; nothing is sent without them.
+
+   * THE CARD IS DRAWN LOCALLY. The achievement image is composed on a
+     canvas in the browser from art the child already has, so it works with
+     no API key, costs nothing and is instant at the one moment a child is
+     least willing to wait. */
+
+const shareState = { badge: null, data: null, cardUrl: null, open: false };
+
+function shareStat(label) {
+  const el = document.createElement('span');
+  el.textContent = label;
+  return el;
+}
+
+async function openShare(finishData) {
+  let data = null;
+  try {
+    const res = await fetch(`${API}/api/badge/${state.sessionId}`);
+    data = await res.json();
+  } catch (e) { /* fall back to whatever the finish payload carried */ }
+  const badge = (data && data.badge) || (finishData && finishData.badge);
+  if (!badge) return false;
+
+  shareState.badge = badge;
+  shareState.data = data || {};
+  shareState.cardUrl = null;
+
+  const el = (id) => $(id);
+  el('badge-emoji').textContent = badge.emoji || '⭐';
+  el('badge-title').textContent = badge.title || 'Explorer';
+  el('badge-blurb').textContent = badge.blurb ? `“${badge.blurb}”` : '';
+  const bd = el('badge');
+  if (bd && bd.classList) {
+    bd.className = `badge ${badge.rank || 'rank-explorer'}`;
+  }
+  el('share-headline').textContent = badge.headline || '';
+  el('share-caption').textContent = badge.caption
+    || 'I drew this and turned it into an adventure!';
+
+  // what I drew  →  what it became
+  const drawing = (data && data.drawing) || null;
+  const hero = (data && data.character_sprite) || spriteImage.src || null;
+  const dImg = el('share-drawing');
+  const hImg = el('share-hero');
+  if (dImg) {
+    if (drawing) { dImg.src = drawing; dImg.parentElement.hidden = false; }
+    else { dImg.parentElement.hidden = true; }
+  }
+  if (hImg) {
+    if (hero) { hImg.src = hero; hImg.parentElement.hidden = false; }
+    else { hImg.parentElement.hidden = true; }
+  }
+  // With no drawing OR no sprite the arrow is meaningless.
+  const pair = document.querySelector('.share-pair');
+  const arrow = document.querySelector('.share-arrow');
+  if (arrow) arrow.hidden = !(drawing && hero);
+  if (pair) pair.hidden = !(drawing || hero);
+
+  const stats = el('share-stats');
+  if (stats) {
+    stats.innerHTML = '';
+    if (num(badge.answered, 0) > 0) {
+      stats.appendChild(shareStat(
+        `✅ ${badge.correct} of ${badge.answered} solved`));
+      stats.appendChild(shareStat(`🎯 ${badge.accuracy}%`));
+    }
+    if (badge.topic_label) stats.appendChild(shareStat(`📚 ${badge.topic_label}`));
+    if (worn.length) stats.appendChild(shareStat(`🎁 ${worn.length} earned`));
+  }
+
+  const note = el('share-note');
+  if (note) { note.hidden = true; note.textContent = ''; }
+
+  const wrap = el('share');
+  if (wrap) wrap.hidden = false;
+  shareState.open = true;
+  hushSpeech();
+  speak(`Adventure complete! You earned the ${badge.title} badge.`);
+  sfxWin();
+  // Compose the image in the background so the buttons are instant.
+  setTimeout(() => { buildShareCard().catch(() => {}); }, 60);
+  return true;
+}
+
+function closeShare() {
+  shareState.open = false;
+  const wrap = $('share');
+  if (wrap) wrap.hidden = true;
+}
+
+/* Load an image and resolve even if it fails, so one missing picture can
+   never stop the card being made. */
+function loadImg(src) {
+  return new Promise((resolve) => {
+    if (!src) { resolve(null); return; }
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+/* The achievement card: one PNG a grown-up can actually attach or post. */
+async function buildShareCard() {
+  const b = shareState.badge;
+  if (!b) return null;
+  if (shareState.cardUrl) return shareState.cardUrl;
+
+  const W0 = 1000, H0 = 620;
+  const c = document.createElement('canvas');
+  c.width = W0; c.height = H0;
+  const g = c.getContext('2d');
+
+  // cream plate with the brand's sun-coloured border
+  g.fillStyle = '#FFF8EE'; g.fillRect(0, 0, W0, H0);
+  const glow = g.createRadialGradient(W0 / 2, 120, 20, W0 / 2, 120, 460);
+  glow.addColorStop(0, 'rgba(244,211,114,.55)');
+  glow.addColorStop(1, 'rgba(244,211,114,0)');
+  g.fillStyle = glow; g.fillRect(0, 0, W0, H0);
+  g.strokeStyle = '#F4D372'; g.lineWidth = 14;
+  g.strokeRect(7, 7, W0 - 14, H0 - 14);
+
+  g.textAlign = 'center';
+  g.fillStyle = '#E0913A';
+  g.font = "800 22px 'Baloo 2', system-ui, sans-serif";
+  g.fillText('ADVENTURE COMPLETE', W0 / 2, 66);
+
+  g.font = "800 84px 'Baloo 2', system-ui, sans-serif";
+  g.fillText(b.emoji || '⭐', W0 / 2, 160);
+
+  g.fillStyle = '#7a4a17';
+  g.font = "800 44px 'Baloo 2', system-ui, sans-serif";
+  g.fillText(b.title || 'Explorer', W0 / 2, 218);
+
+  g.fillStyle = '#6b5340';
+  g.font = "700 22px 'Baloo 2', system-ui, sans-serif";
+  g.fillText(b.headline || '', W0 / 2, 254);
+
+  // the two pictures, side by side
+  const [drawing, hero] = await Promise.all([
+    loadImg(shareState.data && shareState.data.drawing),
+    loadImg((shareState.data && shareState.data.character_sprite)
+            || (spriteImage && spriteImage.src)),
+  ]);
+  const box = 208, y = 286;
+  const slots = [];
+  if (drawing) slots.push(['What I drew', drawing]);
+  if (hero) slots.push(['What it became', hero]);
+  const totalW = slots.length * box + (slots.length - 1) * 96;
+  let x = (W0 - totalW) / 2;
+  slots.forEach(([label, img], i) => {
+    g.save();
+    g.fillStyle = '#fff';
+    rrectOn(g, x, y, box, box, 20);
+    g.fill();
+    g.strokeStyle = 'rgba(201,168,116,.9)'; g.lineWidth = 4;
+    rrectOn(g, x, y, box, box, 20); g.stroke();
+    const s = Math.min(box / img.width, box / img.height) * 0.9;
+    const w = img.width * s, h = img.height * s;
+    try { g.drawImage(img, x + (box - w) / 2, y + (box - h) / 2, w, h); }
+    catch (e) { /* a broken picture is not worth losing the card */ }
+    g.restore();
+    g.fillStyle = '#6b5340';
+    g.font = "700 17px 'Baloo 2', system-ui, sans-serif";
+    g.fillText(label, x + box / 2, y + box + 28);
+    if (i === 0 && slots.length > 1) {
+      g.fillStyle = '#E0913A';
+      g.font = "800 46px 'Baloo 2', system-ui, sans-serif";
+      g.fillText('→', x + box + 48, y + box / 2 + 16);
+    }
+    x += box + 96;
+  });
+
+  g.fillStyle = '#6b5340';
+  g.font = "800 25px 'Baloo 2', system-ui, sans-serif";
+  g.fillText(b.caption || 'I drew this and turned it into an adventure!',
+             W0 / 2, H0 - 66);
+  if (num(b.answered, 0) > 0) {
+    g.fillStyle = '#8a7a6a';
+    g.font = "700 19px 'Baloo 2', system-ui, sans-serif";
+    g.fillText(`${b.correct} of ${b.answered} ${b.topic_label} puzzles solved`
+               + `  ·  ${b.accuracy}%`, W0 / 2, H0 - 36);
+  }
+
+  shareState.cardUrl = c.toDataURL('image/png');
+  return shareState.cardUrl;
+}
+
+/* rrect() draws on the GAME context; the card has its own. */
+function rrectOn(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+function dataUrlToFile(url, name) {
+  try {
+    const [head, b64] = url.split(',');
+    const mime = (head.match(/:(.*?);/) || [])[1] || 'image/png';
+    const bin = atob(b64);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    return new File([buf], name, { type: mime });
+  } catch (e) { return null; }
+}
+
+function shareNote(text) {
+  const note = $('share-note');
+  if (!note) return;
+  note.textContent = text;
+  note.hidden = !text;
+}
+
+/* "Share with a Friend".
+
+   Best available route, in order:
+     1. the device's own share sheet WITH the card image attached (phones,
+        and the only route that can send a picture directly);
+     2. a pre-written Gmail message the grown-up can address and send;
+   and the card is downloadable either way so it can be attached by hand. */
+async function shareAdventure() {
+  const b = shareState.badge;
+  if (!b) return;
+  const msg = (shareState.data && shareState.data.message)
+    || `I earned the ${b.title} badge on Do-IT-oodle!`;
+  const subject = (shareState.data && shareState.data.subject)
+    || `I earned the ${b.title} badge!`;
+
+  let card = null;
+  try { card = await buildShareCard(); } catch (e) { /* text-only is fine */ }
+  const file = card ? dataUrlToFile(card, 'my-badge.png') : null;
+
+  // 1. the real share sheet, with the picture
+  try {
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: subject, text: msg });
+      shareNote('Sent! 🎉');
+      return;
+    }
+  } catch (e) { /* they dismissed it, or the platform refused - fall through */ }
+
+  // 2. Gmail, pre-written. Opens a compose window; nothing sends itself.
+  const gmail = 'https://mail.google.com/mail/?view=cm&fs=1'
+    + `&su=${encodeURIComponent(subject)}`
+    + `&body=${encodeURIComponent(msg)}`;
+  let win = null;
+  try { win = window.open(gmail, '_blank', 'noopener'); } catch (e) { win = null; }
+  if (!win) {
+    try { window.location.href = `mailto:?subject=${encodeURIComponent(subject)}`
+      + `&body=${encodeURIComponent(msg)}`; } catch (e) { /* ignore */ }
+  }
+  shareNote(card
+    ? 'We opened an email for you — tap “Save my badge” to attach the picture.'
+    : 'We opened an email for you.');
+}
+
+async function saveShareCard() {
+  let card = null;
+  try { card = await buildShareCard(); } catch (e) { /* ignore */ }
+  if (!card) { shareNote('Could not make the picture — try again.'); return; }
+  try {
+    const a = document.createElement('a');
+    a.href = card;
+    a.download = `${(shareState.badge.title || 'badge')
+      .replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    shareNote('Saved! It is in your downloads. 🏅');
+  } catch (e) {
+    shareNote('Could not save the picture on this device.');
+  }
+}
+
+if ($('share-send')) $('share-send').addEventListener('click', () => { shareAdventure(); });
+if ($('share-save')) $('share-save').addEventListener('click', () => { saveShareCard(); });
+if ($('share-close')) $('share-close').addEventListener('click', () => {
+  closeShare();
+  show('screen-topic');
+  running = false;
+});

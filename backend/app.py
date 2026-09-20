@@ -471,6 +471,10 @@ def create_world(req: CreateWorldRequest):
         "theme": req.theme,
         "background": None,
         "character_sprite": None,
+        # The drawing they made at the very start. The share card puts it
+        # side by side with what the AI turned it into, which is the whole
+        # point of "I drew this and turned it into an adventure!".
+        "drawing": req.image_data_url or None,
         "destination": (req.destination or "").strip() or None,
         "goal_text": goal_text,
         "setting": setting,
@@ -892,6 +896,7 @@ def _quest_finished(session: dict) -> dict:
     quest["complete"] = True
     session["challenge"] = None
     return {
+        "badge": story_engine.badge_for(quest, _stats(session)),
         "challenge": None,
         "complete": True,
         "epilogue": story_engine.epilogue(quest),
@@ -1186,6 +1191,42 @@ def get_accessory(session_id: str):
                   "description": a.get("description")}
                  for a in session["accessories"]],
         "accessory": _accessory_offer(session),
+    }
+
+
+# ================================================================ SHARING
+#
+# "create a polished share screen that celebrates their accomplishment and
+#  shows their badge, the original drawing they made at the beginning, and
+#  the AI-generated character that their drawing became"
+#
+# Everything the share card needs, in one request. Deliberately NOT an
+# auto-post: a child's drawing and a child's name do not leave this machine
+# unless a grown-up presses a button and picks who to send it to.
+
+
+@app.get("/api/badge/{session_id}")
+def get_badge(session_id: str):
+    session = _get_session(session_id)
+    quest = session.get("quest")
+    if quest is None:
+        raise HTTPException(400, "No adventure to share yet.")
+    badge = story_engine.badge_for(quest, _stats(session))
+    return {
+        "badge": badge,
+        # The two pictures, side by side: what they drew, and what it became.
+        "drawing": session.get("drawing"),
+        "character_sprite": session.get("character_sprite"),
+        "complete": bool(quest.get("complete")),
+        "quest_title": quest.get("title", ""),
+        "goal_text": quest.get("goal_text", ""),
+        "epilogue": story_engine.epilogue(quest) if quest.get("complete") else "",
+        # A ready-to-send note, written by the deterministic layer so it is
+        # instant and never says anything strange.
+        "message": story_engine.badge_message(badge),
+        "subject": f"I earned the {badge['title']} badge!",
+        "accessories": [{"slot": a["slot"], "description": a.get("description")}
+                        for a in session.get("accessories", [])],
     }
 
 

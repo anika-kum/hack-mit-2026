@@ -225,6 +225,51 @@
       </div>
     </div>
 
+    <!-- ════ THE SHARE SCREEN ════
+         Earned by finishing the whole adventure. Shows the badge, the
+         drawing they made at the start, and what the AI turned it into. -->
+    <div class="share" id="share" hidden>
+      <div class="share-card" id="share-card">
+        <div class="share-burst" aria-hidden="true"></div>
+        <p class="share-eyebrow" id="share-eyebrow">Adventure complete!</p>
+
+        <div class="badge" id="badge">
+          <span class="badge-emoji" id="badge-emoji">⭐</span>
+          <p class="badge-title" id="badge-title">Explorer</p>
+          <p class="badge-blurb" id="badge-blurb"></p>
+        </div>
+
+        <p class="share-headline" id="share-headline"></p>
+
+        <div class="share-pair">
+          <figure class="share-pane">
+            <img id="share-drawing" alt="The drawing you made">
+            <figcaption>What I drew</figcaption>
+          </figure>
+          <span class="share-arrow" aria-hidden="true">→</span>
+          <figure class="share-pane">
+            <img id="share-hero" alt="Your character">
+            <figcaption>What it became</figcaption>
+          </figure>
+        </div>
+
+        <p class="share-caption" id="share-caption">I drew this and turned it
+          into an adventure!</p>
+
+        <div class="share-stats" id="share-stats"></div>
+
+        <div class="share-actions">
+          <button class="btn btn-big share-go" id="share-send" type="button">
+            💌 Share with a Friend</button>
+          <button class="btn btn-soft" id="share-save" type="button">
+            ⬇️ Save my badge</button>
+          <button class="btn btn-ghost" id="share-close" type="button">
+            Play again ›</button>
+        </div>
+        <p class="share-note" id="share-note" hidden></p>
+      </div>
+    </div>
+
     <!-- ════ THE ACCESSORY STUDIO ════
          Earned every 5 correct answers. A small canvas with the same paint
          tools as the create screen; whatever the child draws goes ON their

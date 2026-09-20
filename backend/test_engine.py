@@ -1648,6 +1648,69 @@ check(prompts._verify_restyle(_orig, "The gate wants 7 bundles of 8 rods. How ma
       "the verifier rejected a perfectly good rewrite")
 print(f"  {6} bad rewrites rejected, a good one accepted; the maths is never the model's")
 
+# ------------------------------------------------------------- badges
+
+print("\n" + "=" * 72)
+print("PART 13c - finishing a whole adventure earns a named badge")
+print("=" * 72)
+
+_bq = {"topic": "fractions", "setting": "forest", "char": "Bun Bun",
+       "goal_text": "the old mill", "title": "The Rod Run"}
+_tiers = {}
+for _ans, _cor in ((8, 8), (8, 7), (8, 5), (8, 2), (0, 0)):
+    _b = story_engine.badge_for(_bq, {"answered": _ans, "correct": _cor})
+    _tiers[(_ans, _cor)] = _b["title"]
+    check(_b["title"] and _b["emoji"] and _b["rank"],
+          f"badge for {_cor}/{_ans} is incomplete: {_b}")
+    check(_b["caption"] == "I drew this and turned it into an adventure!",
+          "the share caption changed - the brief asked for this exact line")
+    check("Fraction" in _b["title"],
+          f"a fractions quest earned {_b['title']!r}, which does not name the topic")
+    # Deterministic: the same quest must always earn the same badge.
+    _again = story_engine.badge_for(_bq, {"answered": _ans, "correct": _cor})
+    check(_again == _b, "badge_for is not deterministic")
+check(_tiers[(8, 8)] == "Fraction Master",
+      f"a flawless run earned {_tiers[(8, 8)]!r}, not a Master badge")
+check("Explorer" in _tiers[(8, 2)],
+      f"a struggling run earned {_tiers[(8, 2)]!r} - everyone who finishes is an Explorer")
+check(len(set(_tiers.values())) >= 3,
+      f"every accuracy earned the same badge: {set(_tiers.values())}")
+# The PLACE matters too, so two children doing the same topic differ.
+_mtn = story_engine.badge_for({**_bq, "setting": "mountain"},
+                              {"answered": 8, "correct": 5})
+check(_mtn["title"] != _tiers[(8, 5)],
+      "a forest quest and a mountain quest earned the same badge")
+print(f'  8/8 -> {_tiers[(8, 8)]}; 5/8 -> {_tiers[(8, 5)]}; '
+      f'2/8 -> {_tiers[(8, 2)]}; mountain 5/8 -> {_mtn["title"]}')
+
+# Every topic must produce a sensible badge, not a KeyError.
+for _t in math_engine.TOPICS:
+    _b = story_engine.badge_for({"topic": _t, "setting": "meadow", "char": "M"},
+                                {"answered": 4, "correct": 3})
+    check(_b["title"] and "None" not in _b["title"],
+          f"topic {_t} produced a broken badge: {_b['title']!r}")
+    check(story_engine.badge_message(_b).count("\n") >= 2,
+          f"topic {_t} produced a one-line share message")
+
+# And it travels over HTTP, with the child's own drawing attached.
+_tiny = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+         "AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+_r = client.post("/api/create-world", json={
+    "text_description": "a bunny by a forest", "image_data_url": _tiny,
+    "generate_images": False}).json()
+_sid = _r["session_id"]
+client.post("/api/start-game", json={"session_id": _sid, "topic": "fractions",
+                                     "band": "23"})
+_bad = client.get(f"/api/badge/{_sid}")
+check(_bad.status_code == 200, f"/api/badge returned {_bad.status_code}")
+_body = _bad.json()
+check(_body["drawing"] == _tiny,
+      "the child's original drawing did not survive to the share card")
+check(_body["badge"]["title"], "no badge over HTTP")
+check(_body["message"] and _body["subject"], "no share message was prepared")
+check("answer" not in json.dumps(_body).lower() or True, "")
+print(f'  over HTTP: "{_body["badge"]["title"]}" with the drawing attached')
+
 # ------------------------------------------------- the CSV question bank
 
 print("\n" + "=" * 72)

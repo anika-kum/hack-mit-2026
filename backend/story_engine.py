@@ -2017,3 +2017,120 @@ def summary(quest: dict) -> dict:
         "treasure": quest.get("treasure", ""),
         "treasure_source": quest.get("treasure_source", "world"),
     }
+
+
+# =============================================================== BADGES
+#
+# "when a user successfully completes their full adventure, they should earn a
+#  fun personalized badge based on the math topic and/or adventure they
+#  completed (for example, 'Fraction Forest Explorer' or 'Multiplication
+#  Master')"
+#
+# Deterministic, like everything else that matters here: the same quest always
+# earns the same badge, with no model call and no latency at the one moment a
+# child is least willing to wait. The AI layer may add a flourish on top, but
+# the badge itself is earned, named and rendered offline.
+#
+# A badge is TOPIC x PLACE x HOW-IT-WENT:
+#   "Fraction Forest Explorer"    topic + the world they drew
+#   "Multiplication Master"       earned by getting (nearly) everything right
+# so two children who both did fractions still get different badges if one
+# played in a forest and the other on a mountain.
+
+BADGE_TOPIC = {
+    "counting_and_comparing": ("Counting", "🔢"),
+    "addition": ("Adding", "➕"),
+    "subtraction": ("Taking-Away", "➖"),
+    "time_and_money": ("Coin", "🪙"),
+    "multiplication": ("Multiplication", "✖️"),
+    "fractions": ("Fraction", "🧩"),
+    "decimals": ("Decimal", "💧"),
+    "geometry": ("Shape", "📐"),
+    "algebra": ("Mystery-Number", "🔮"),
+    "speed_distance_time": ("Speed", "🏃"),
+}
+
+BADGE_PLACE = {
+    "river": "River", "lake": "Lakeside", "ocean": "Ocean", "sea": "Seashore",
+    "bridge": "Bridge", "island": "Island", "cliff": "Cliff",
+    "mountain": "Mountain", "volcano": "Volcano", "forest": "Forest",
+    "tree": "Treetop", "garden": "Garden", "cave": "Cavern",
+    "desert": "Desert", "meadow": "Meadow", "field": "Meadow",
+    "road": "Road", "house": "Homestead", "castle": "Castle",
+    "cloud": "Skyward",
+}
+
+# How it went, worst to best. `rank` is what the share card colours itself by.
+BADGE_TIERS = [
+    (0.00, "Explorer", "rank-explorer",
+     "made it the whole way, and that is the hard part"),
+    (0.60, "Adventurer", "rank-adventurer",
+     "kept going and got most of them right"),
+    (0.80, "Champion", "rank-champion",
+     "barely put a foot wrong the whole way"),
+    (1.00, "Master", "rank-master",
+     "did not miss a single one"),
+]
+
+
+def badge_for(quest: dict, stats: dict | None = None) -> dict:
+    """The badge earned for finishing this quest. Deterministic, no AI."""
+    stats = stats or {}
+    topic = (quest or {}).get("topic", "addition")
+    setting = (quest or {}).get("setting", "meadow")
+    noun, emoji = BADGE_TOPIC.get(topic, ("Number", "⭐"))
+    place = BADGE_PLACE.get(setting, "Trail")
+
+    answered = max(0, int(stats.get("answered") or 0))
+    correct = max(0, int(stats.get("correct") or 0))
+    accuracy = (correct / answered) if answered else 0.0
+
+    tier, rank, blurb = BADGE_TIERS[0][1], BADGE_TIERS[0][2], BADGE_TIERS[0][3]
+    for floor, name, cls, why in BADGE_TIERS:
+        if accuracy >= floor:
+            tier, rank, blurb = name, cls, why
+
+    # "Multiplication Master" reads better than "Multiplication Forest Master",
+    # so the place is dropped at the top tier - the tier IS the story there.
+    if tier == "Master":
+        title = f"{noun} {tier}"
+    else:
+        title = f"{noun} {place} {tier}"
+
+    char = (quest or {}).get("char", "our hero")
+    goal = (quest or {}).get("goal_text") or "the end of the trail"
+    return {
+        "title": title,
+        "emoji": emoji,
+        "tier": tier,
+        "rank": rank,
+        "topic": topic,
+        "topic_label": math_engine.TOPICS.get(topic, "Maths"),
+        "place": place,
+        "blurb": blurb,
+        "accuracy": round(accuracy * 100),
+        "answered": answered,
+        "correct": correct,
+        "character": char,
+        "goal_text": goal,
+        "quest_title": (quest or {}).get("title", "The Adventure"),
+        # The line the child reads out loud on the share card.
+        "headline": f"{char} reached {goal}!",
+        "caption": "I drew this and turned it into an adventure!",
+    }
+
+
+def badge_message(badge: dict) -> str:
+    """A short, warm, child-authored note to send to a grown-up."""
+    b = badge or {}
+    sums = (f"{b.get('correct', 0)} of {b.get('answered', 0)} "
+            f"{b.get('topic_label', 'maths')} puzzles")
+    return (
+        f"I drew {b.get('character', 'my hero')} and turned them into an "
+        f"adventure!\n\n"
+        f"We went all the way to {b.get('goal_text', 'the end of the trail')} "
+        f"and I solved {sums} on the way.\n\n"
+        f"I earned the {b.get('emoji', '⭐')} {b.get('title', 'Explorer')} badge "
+        f"- {b.get('blurb', 'I made it the whole way')}.\n\n"
+        f"Made with Do-IT-oodle."
+    )

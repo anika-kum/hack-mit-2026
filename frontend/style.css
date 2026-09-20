@@ -583,3 +583,69 @@ kbd{background:var(--paper);border-radius:6px;padding:2px 7px;font-family:inheri
 .custom-colour input[type="color"]{position:absolute;inset:-6px;width:calc(100% + 12px);
   height:calc(100% + 12px);border:0;padding:0;opacity:0;cursor:pointer}
 .custom-colour.sel{box-shadow:0 0 0 3px rgba(244,211,114,.55)}
+
+
+/* ════════════ THE SHARE SCREEN ════════════
+   The end of a whole adventure. Should feel like being handed a medal, not
+   like a social-media widget: the badge is the hero, the two pictures tell
+   the story, and the buttons are the smallest thing on the card. */
+.share{position:absolute;inset:0;z-index:50;display:flex;align-items:center;
+  justify-content:center;background:rgba(74,59,82,.58);backdrop-filter:blur(4px);
+  animation:studioIn .25s ease-out;overflow:auto;padding:16px}
+.share[hidden]{display:none}
+.share-card{position:relative;width:min(94vw,540px);
+  background:var(--cream,#FFF8EE);border:3px solid var(--brand-sun,#F4D372);
+  border-radius:28px;padding:clamp(16px,2.4vw,26px);text-align:center;
+  box-shadow:0 22px 60px rgba(74,59,82,.45);overflow:hidden;
+  animation:badgePop .5s cubic-bezier(.2,1.35,.4,1)}
+@keyframes badgePop{0%{transform:scale(.82) rotate(-3deg);opacity:0}
+  60%{transform:scale(1.03) rotate(1deg);opacity:1}100%{transform:none}}
+.share-burst{position:absolute;inset:-40% -10% auto -10%;height:150%;
+  background:radial-gradient(circle at 50% 22%,rgba(244,211,114,.55),
+    rgba(244,211,114,0) 62%);pointer-events:none}
+.share-eyebrow{position:relative;font-size:12px;font-weight:800;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--brand-carrot,#E0913A)}
+
+.badge{position:relative;margin:8px auto 4px;width:min(100%,330px);
+  padding:14px 16px 16px;border-radius:22px;
+  background:linear-gradient(180deg,#FFFDF6,#FDF0D6);
+  border:3px solid var(--brand-carrot,#E0913A);
+  box-shadow:0 8px 0 rgba(224,145,58,.22)}
+.badge-emoji{display:block;font-size:clamp(42px,8vw,60px);line-height:1;
+  filter:drop-shadow(0 4px 6px rgba(74,59,82,.2));animation:badgeBob 2.6s ease-in-out infinite}
+@keyframes badgeBob{0%,100%{transform:translateY(0) rotate(-2deg)}
+  50%{transform:translateY(-6px) rotate(2deg)}}
+.badge-title{font-size:clamp(20px,3.3vw,28px);font-weight:800;margin-top:6px;
+  line-height:1.12;color:#7a4a17}
+.badge-blurb{font-size:13px;opacity:.8;margin-top:4px;font-style:italic}
+.badge.rank-champion{border-color:#3E85BE;box-shadow:0 8px 0 rgba(62,133,190,.22)}
+.badge.rank-champion .badge-title{color:#2b5f88}
+.badge.rank-master{border-color:#6BA36A;box-shadow:0 8px 0 rgba(107,163,106,.24)}
+.badge.rank-master .badge-title{color:#3f7040}
+
+.share-headline{position:relative;font-size:clamp(15px,2vw,18px);
+  font-weight:700;margin:10px 0 2px}
+.share-pair{position:relative;display:flex;align-items:center;
+  justify-content:center;gap:10px;margin:12px 0 6px}
+.share-pane{flex:1;max-width:180px;margin:0}
+.share-pane img{width:100%;aspect-ratio:1;object-fit:contain;background:#fff;
+  border:2.5px solid rgba(201,168,116,.85);border-radius:16px;display:block}
+.share-pane figcaption{font-size:11.5px;font-weight:700;opacity:.72;
+  margin-top:5px;text-transform:uppercase;letter-spacing:.06em}
+.share-arrow{font-size:24px;color:var(--brand-carrot,#E0913A);font-weight:800;
+  flex-shrink:0}
+.share-caption{position:relative;font-size:clamp(14px,1.9vw,17px);
+  font-weight:700;color:#6b5340;margin:6px 0 2px}
+.share-stats{position:relative;display:flex;gap:8px;justify-content:center;
+  flex-wrap:wrap;margin:10px 0 4px}
+.share-stats span{background:rgba(255,255,255,.75);border:2px solid rgba(201,168,116,.6);
+  border-radius:999px;padding:4px 11px;font-size:13px;font-weight:700}
+.share-actions{position:relative;display:flex;flex-direction:column;gap:8px;
+  align-items:stretch;margin-top:14px}
+.share-go{font-size:clamp(16px,2.3vw,20px)}
+.share-note{position:relative;font-size:12.5px;opacity:.75;margin-top:8px}
+@media (min-width:520px){
+  .share-actions{flex-direction:row;justify-content:center;flex-wrap:wrap}
+  .share-actions .btn{flex:0 1 auto}
+  .share-go{flex:1 1 200px}
+}
