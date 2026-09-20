@@ -1487,7 +1487,13 @@ function finishObstacle() {
   sfxWin();
   const cleared = firstStr(field(obState.spec, 'cleared_text'));
   if (cleared) showNarration(cleared, obstacleTitle());
-  setTimeout(nextChallenge, cleared ? 1500 : 700);
+  // If the character is mid-dress, let the child SEE it before the story
+  // moves on. Capped by ACCESSORY_MAX_WAIT_MS, so this can never hang.
+  const go = () => {
+    if (accessoryHold) { setTimeout(go, 400); return; }
+    nextChallenge();
+  };
+  setTimeout(go, cleared ? 1500 : 700);
 }
 
 function skipObstacle() {
@@ -5205,24 +5211,59 @@ async function studioFinish(skipped) {
   const img = new Image();
   img.onload = () => { worn.push({ img, slot }); };
   img.src = dataUrl;
-  showToast('Looking good! ✨', 'Your drawing is on them now.', 'good');
 
   try {
     const res = await postJSON(['/api/accessory'], {
       session_id: state.sessionId, image_data_url: dataUrl, slot, skipped: false,
     });
-    if (res && res.rendering) pollAccessory();
-  } catch (e) { /* the child already has their accessory; say nothing */ }
+    if (res && res.rendering) {
+      /* The painted version is coming. HOLD THE QUEST until it lands - the
+         playtest note was "i want the glasses to immediately set in, not on
+         the NEXT SLIDE... we can wait until that happens, you can put
+         loading or something". So we say so, and wait, with a cap. */
+      accessoryWait(true);
+      pollAccessory();
+    } else {
+      showToast('Looking good! ✨', 'Your drawing is on them now.', 'good');
+    }
+  } catch (e) {
+    showToast('Looking good! ✨', 'Your drawing is on them now.', 'good');
+  }
+}
+
+/* The "putting it on" state. Blocks the beat from advancing so the child
+   sees their character change BEFORE the story moves on. */
+let accessoryHold = false;
+function accessoryWait(on) {
+  accessoryHold = !!on;
+  const el = $('accessory-wait');
+  if (el) el.hidden = !on;
+  if (on) {
+    const name = (state.interpretation && state.interpretation.character_name) || 'your hero';
+    const t = $('accessory-wait-text');
+    if (t) t.textContent = `Putting it on ${name}…`;
+  }
 }
 
 /* The AI-edited sprite, if it arrives. Pure polish - the child is already
    wearing their drawing, so a failure here is invisible by construction. */
+const ACCESSORY_POLL_MS = 700;
+const ACCESSORY_MAX_WAIT_MS = 45000;   // never trap a child behind a slow model
+
 function pollAccessory() {
   clearTimeout(studio.poll);
-  let tries = 0;
+  const started = Date.now();
+  const done = (msg, sub) => {
+    accessoryWait(false);
+    if (msg) showToast(msg, sub || '', 'good');
+  };
   const tick = async () => {
-    tries++;
-    if (tries > 30) return;
+    if (Date.now() - started > ACCESSORY_MAX_WAIT_MS) {
+      // Their own drawing is already on the character, so this is a downgrade
+      // in polish, not a loss. Say nothing alarming.
+      done('Looking good! ✨', 'Your drawing is on them now.');
+      return;
+    }
     try {
       const r = await fetch(`${API}/api/accessory/${state.sessionId}`);
       const d = await r.json();
@@ -5231,13 +5272,17 @@ function pollAccessory() {
         // The painted sprite now HAS the accessory, so drop the overlay we
         // were drawing ourselves - otherwise the child wears it twice.
         worn.length = 0;
+        done('Look at you! ✨', 'Your character is wearing it.');
         return;
       }
-      if (d && d.status === 'failed') return;
+      if (d && d.status === 'failed') {
+        done('Looking good! ✨', 'Your drawing is on them now.');
+        return;
+      }
     } catch (e) { /* keep trying quietly */ }
-    studio.poll = setTimeout(tick, 1200);
+    studio.poll = setTimeout(tick, ACCESSORY_POLL_MS);
   };
-  studio.poll = setTimeout(tick, 1400);
+  studio.poll = setTimeout(tick, ACCESSORY_POLL_MS);
 }
 
 /* Paint everything the character is wearing, anchored to the DRAWN sprite

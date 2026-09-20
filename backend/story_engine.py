@@ -1425,6 +1425,10 @@ def start_quest(topic: str, band: str, interpretation: dict, seed=None,
         # The noun every word problem in this quest is written about.
         "treasure": treasure or infer_treasure(setting, objects),
         "treasure_source": "story" if treasure else "world",
+        # Filled in by app.py from prompts.generate_obstacle_prose, in the
+        # background. Empty = use the authored fallback.
+        "obstacle_prose": {},
+        "obstacle_prose_source": "authored",
         "friend": friend,
         "friend_desc": friend_desc,
         "beats": beats,
@@ -1586,6 +1590,14 @@ def obstacle_for(quest: dict, beat: dict, ctx: dict | None = None) -> dict:
     seen = sum(1 for b in quest.get("beats", [])[:quest.get("index", 0)]
                if b.get("obstacle") == kind)
     spec = obstacle_spec(kind, seen)
+    # ★ Prose written for THIS child's world, if the model got there in time.
+    # The authored lines below are the no-API-key fallback only - with a key,
+    # nothing hardcoded reaches a child.
+    written = (quest.get("obstacle_prose") or {}).get(kind)
+    if written:
+        spec = dict(spec)
+        spec["blocked"] = written.get("blocked") or spec["blocked"]
+        spec["cleared"] = written.get("cleared") or spec["cleared"]
     ctx = ctx or _ctx(quest)
     gated = not beat.get("no_question")
     complexity = quest.get("complexity", 1)
@@ -2016,6 +2028,7 @@ def summary(quest: dict) -> dict:
         "interludes": quest.get("interludes", 0),
         "treasure": quest.get("treasure", ""),
         "treasure_source": quest.get("treasure_source", "world"),
+        "obstacle_prose_source": quest.get("obstacle_prose_source", "authored"),
     }
 
 
@@ -2134,3 +2147,13 @@ def badge_message(badge: dict) -> str:
         f"- {b.get('blurb', 'I made it the whole way')}.\n\n"
         f"Made with Do-IT-oodle."
     )
+
+
+def obstacle_kinds(quest: dict) -> list[str]:
+    """Every obstacle this quest will show, in order, de-duplicated.
+
+    Known the moment the arc is built, which is what lets the prose for ALL
+    of them be written in a single background call instead of one per beat.
+    """
+    return list(dict.fromkeys(
+        b.get("obstacle") for b in (quest or {}).get("beats", []) if b.get("obstacle")))

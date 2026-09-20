@@ -1204,3 +1204,95 @@ def restyle_challenge(challenge: dict, interpretation: dict,
                     f"Try again, shorter.")},
             ]
     return out
+
+
+# ============================================== OBSTACLE PROSE, WRITTEN BY AI
+#
+# "i told you to remove the hard coded words in the phrases like 'thorns the
+#  size of a fingernail', can we please get rid of this, and instead have
+#  generation with the api for everything"
+#
+# Every obstacle used to carry one authored blocked/cleared line, so two
+# children in two different worlds read the identical sentence. Now the model
+# writes them - ALL of them, for the whole quest, in ONE call fired in the
+# background while the child is still on beat one. By the time they reach the
+# second obstacle it has landed.
+#
+# The authored lines survive ONLY as the no-API-key fallback. That path is a
+# first-class supported state (the whole game is playable offline) so it
+# cannot be deleted - but with a key, nothing hardcoded reaches a child.
+
+_OBSTACLE_SYSTEM = """You write the two lines a child reads at an obstacle in their own adventure.
+
+For each obstacle you are given: what KIND of thing it is, and the world the child drew.
+
+Write, for each:
+  "blocked" - 1-2 short sentences. What is in the way, and why they cannot simply walk past. Present tense. End on the problem, not the solution.
+  "cleared" - 1 short sentence. The moment they get past it. Past tense. Warm, a little triumphant.
+
+RULES
+- Write {char} instead of the character's name. It is the only placeholder allowed.
+- Make every obstacle sound like it belongs in THIS child's world, not a generic one.
+- Never mention numbers, maths, questions or answers.
+- Never repeat a phrase between obstacles. Each one gets its own images.
+- Age-appropriate for 4-10: exciting, never frightening. Nothing is scary, nobody gets hurt.
+- Short words. No metaphors a seven-year-old would not use.
+
+Respond with ONLY valid JSON, no markdown fences:
+{"obstacles": {"<kind>": {"blocked": "...", "cleared": "..."}, ...}}
+Use exactly the kind strings you were given as the keys."""
+
+
+def generate_obstacle_prose(interpretation: dict, kinds, obstacles: dict,
+                            register: str = "rich") -> dict:
+    """Bespoke blocked/cleared lines for every obstacle in one quest.
+
+    Returns {kind: {"blocked":..., "cleared":...}}, or {} when unavailable -
+    and {} means "keep the authored fallback", never "leave it blank".
+    """
+    client = get_client()
+    kinds = [k for k in dict.fromkeys(kinds or []) if k]
+    if client is None or not kinds:
+        return {}
+
+    char = (interpretation or {}).get("character_name") or "our hero"
+    hero = (interpretation or {}).get("main_character") or "a small creature"
+    setting = (interpretation or {}).get("setting") or "a green valley"
+    objects = ", ".join((interpretation or {}).get("objects", [])[:6])
+    listed = "\n".join(
+        f'  - {k}: {(obstacles.get(k) or {}).get("title", k)} '
+        f'({(obstacles.get(k) or {}).get("action", "cross")})'
+        for k in kinds)
+    user = (
+        f"Character: {char}, who is {hero}\n"
+        f"Their world: {setting}\n"
+        f"Things in their world: {objects}\n"
+        f"Voice: {_REGISTER_BRIEF.get(register, _REGISTER_BRIEF['rich'])}\n\n"
+        f"Write lines for these {len(kinds)} obstacles:\n{listed}\n"
+    )
+    try:
+        resp = chat(
+            client, model=TEXT_MODEL,
+            messages=[{"role": "system", "content": _OBSTACLE_SYSTEM},
+                      {"role": "user", "content": user}],
+            max_completion_tokens=2000,
+        )
+        data = _parse_json_loose(resp.choices[0].message.content)
+    except Exception as exc:
+        note_error(exc)
+        return {}
+
+    raw = (data or {}).get("obstacles")
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for kind in kinds:
+        entry = raw.get(kind)
+        if not isinstance(entry, dict):
+            continue
+        blocked = sanitize_story_text(entry.get("blocked"))
+        cleared = sanitize_story_text(entry.get("cleared"))
+        # A half-written obstacle is worse than the authored one.
+        if len(blocked) > 12 and len(cleared) > 8:
+            out[kind] = {"blocked": blocked, "cleared": cleared}
+    return out

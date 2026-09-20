@@ -497,6 +497,7 @@ def create_world(req: CreateWorldRequest):
         "frames_enabled": bool(req.generate_images),
         "storyline_future": None,
         "storyline": None,
+        "obstacle_prose_future": None,
         # --- accessories -------------------------------------------------
         # `sprite_original` is the sprite as FIRST generated and is never
         # overwritten: every accessory edit is applied to it with the full
@@ -525,6 +526,16 @@ def create_world(req: CreateWorldRequest):
         hint_band, destination, story_engine.JOURNEY_SKELETON, "",
         story_engine.complexity_for(hint_band, "geometry"))
     session["storyline_requested_at"] = time.time()
+
+    # ★ Obstacle prose, prefetched the same way. The obstacles a quest can
+    # use depend only on the SETTING, which is already known here - so the
+    # whole pool is written now, during the ~13s of image generation and the
+    # time the child spends choosing a topic. By start-game it has landed and
+    # the very first obstacle is already in their own world's words.
+    session["obstacle_prose_future"] = _POOL.submit(
+        prompts.generate_obstacle_prose, interpretation,
+        story_engine.obstacles_for_setting(setting, objects),
+        story_engine.OBSTACLES, "rich")
 
     if req.generate_images:
         # The opening background IS journey frame 0 - the anchor every later
@@ -772,6 +783,49 @@ def _issue_challenge(session: dict) -> dict:
     return _issue_beat(session)
 
 
+# The most start-game will ever wait for the obstacle prose.
+#
+# Generous on purpose, and it costs nothing in the real flow: this call is
+# fired at create-world ALONGSIDE the storyline, and start-game already waits
+# for that. The two run in parallel, so the cost is max(storyline, prose),
+# not the sum - and with images on, create-world alone takes longer than
+# either. Worth the wait because the alternative is a child reading the same
+# hardcoded sentence every other child reads.
+OBSTACLE_PROSE_MAX_BLOCK_S = float(
+    os.getenv("DQ_OBSTACLE_PROSE_MAX_BLOCK_S", "20"))
+
+
+def _collect_obstacle_prose(session: dict, quest: dict) -> None:
+    """Pick up the prefetched obstacle prose. Never raises, never hangs.
+
+    Missing or late prose means the authored fallback is used - which is the
+    offline path, so it is always playable. Anything that arrives after the
+    deadline is still picked up in the background for later beats.
+    """
+    fut = session.get("obstacle_prose_future")
+    if fut is None:
+        return
+    try:
+        written = fut.result(timeout=OBSTACLE_PROSE_MAX_BLOCK_S)
+        if written:
+            quest["obstacle_prose"] = written
+            quest["obstacle_prose_source"] = "openai"
+            return
+    except Exception as exc:
+        prompts.note_error(exc)
+
+    # Too slow for beat one, but the later beats can still have it.
+    def _late():
+        try:
+            got = fut.result(timeout=60)
+            if got:
+                quest["obstacle_prose"] = got
+                quest["obstacle_prose_source"] = "openai-late"
+        except Exception:
+            pass
+    _POOL.submit(_late)
+
+
 def _collect_storyline(session: dict) -> dict | None:
     """Pick up the storyline prefetched at create-world time.
 
@@ -817,8 +871,12 @@ def start_game(req: StartGameRequest):
         storyline=_collect_storyline(session),
     )
 
-    challenge = _issue_beat(session)
     quest = session["quest"]
+    # Both futures were fired at create-world, so by the time start_quest has
+    # collected the storyline this one is usually done too.
+    _collect_obstacle_prose(session, quest)
+
+    challenge = _issue_beat(session)
     return {
         "challenge": challenge,
         "stats": _stats(session),
