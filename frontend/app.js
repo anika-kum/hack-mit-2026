@@ -303,14 +303,22 @@ if (SR) {
    Ages 4-6 often cannot read the prompt, so everything important is
    spoken. Muteable, because on the tenth repeat it is not charming. */
 
-function speak(text) {
-  if (state.muted || !text || !('speechSynthesis' in window)) return;
+// `onDone`, when passed, fires once this line has actually finished being
+// read aloud — muted or unsupported falls back to a short fixed delay so a
+// caller chaining off it never hangs.
+function speak(text, onDone) {
+  const done = () => { if (onDone) { try { onDone(); } catch (e) { /* ignore */ } } };
+  if (state.muted || !text || !('speechSynthesis' in window)) {
+    if (onDone) setTimeout(done, 1200);
+    return;
+  }
   try {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(String(text).replace(/[*_#]/g, ''));
     u.rate = 0.92; u.pitch = 1.2; u.volume = 1;
+    if (onDone) { u.onend = done; u.onerror = done; }
     window.speechSynthesis.speak(u);
-  } catch (e) { /* speech is a nice-to-have, never fatal */ }
+  } catch (e) { done(); /* speech is a nice-to-have, never fatal */ }
 }
 function hushSpeech() {
   try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
@@ -2123,17 +2131,21 @@ async function startGame(topic) {
     applyChallenge(data.challenge, data.stats);
     if (!running) { running = true; requestAnimationFrame(loop); }
     // The quest opening sets the scene, then the first chapter takes over
-    // the ribbon. Both are read aloud; neither covers the question.
+    // the ribbon. Both are read aloud; neither covers the question. The
+    // chapter line only takes over once the opening has actually finished
+    // being read — a real completion signal, not a guessed delay, so the
+    // scroll never turns the page on its own before anything's happened.
     if (data.opening) {
       const firstIntro = firstStr(field(field(data.challenge, 'beat'), 'intro'));
-      showNarration(data.opening, questTitle() || 'Your quest');
       if (firstIntro) {
         const issued = data.challenge;
-        setTimeout(() => {
+        showNarration(data.opening, questTitle() || 'Your quest', () => {
           if (state.challenge === issued) {
             showNarration(firstIntro, field(field(issued, 'beat'), 'title') || 'Chapter 1');
           }
-        }, 5200);
+        });
+      } else {
+        showNarration(data.opening, questTitle() || 'Your quest');
       }
     }
   } catch (err) {
@@ -2423,12 +2435,15 @@ function setTimeOfDay(t) {
    the stage — so it can never cover the art, and every new line makes
    the scroll unroll again.
 
-   The `ms` argument is kept so every existing call site still works, but
-   it no longer hides anything — it only decides whether this line is
-   important enough to interrupt the read-aloud. */
-function showNarration(text, badge, ms) {
+   Every call site already fires off a real event — a beat/chapter
+   changing after an answer, an obstacle clearing, the quest finishing —
+   so the scroll only turns the page when something actually happened.
+   `onSpoken`, when passed, fires once this line has finished being read
+   aloud — used to chain a second line off the first actually finishing,
+   instead of guessing how long that takes. */
+function showNarration(text, badge, onSpoken) {
   const txt = String(text == null ? '' : text).trim();
-  if (!txt) return;
+  if (!txt) { if (typeof onSpoken === 'function') onSpoken(); return; }
   const scroll = $('story-scroll');
   const body = $('story-text');
   const eyebrow = $('story-eyebrow');
@@ -2441,7 +2456,7 @@ function showNarration(text, badge, ms) {
     void scroll.offsetWidth;                 // restart the unroll
     scroll.classList.add('fresh');
   }
-  speak(txt);
+  speak(txt, typeof onSpoken === 'function' ? onSpoken : undefined);
 }
 
 function updateStats(stats) {
