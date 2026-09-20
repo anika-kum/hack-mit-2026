@@ -155,7 +155,6 @@ const state = {
   quest: null,              // { title, ... } summary from the story engine
   selected: [],             // ORDERED — ordered_path depends on this
   locked: false,
-  muted: localStorage.getItem('dq-muted') === '1',
   stats: { score: 0, streak: 0, level: 1, accuracy: 0 },
 };
 
@@ -300,25 +299,18 @@ if (SR) {
 }
 
 /* ═════════════ 3. READ-ALOUD + LITTLE SOUNDS ═════════════
-   Ages 4-6 often cannot read the prompt, so everything important is
-   spoken. Muteable, because on the tenth repeat it is not charming. */
+   Ages 4-6 often cannot read the prompt, so everything important CAN be
+   spoken — on demand, from a 🔊 button beside the story and beside the
+   question, rather than narrating on its own. */
 
-// `onDone`, when passed, fires once this line has actually finished being
-// read aloud — muted or unsupported falls back to a short fixed delay so a
-// caller chaining off it never hangs.
-function speak(text, onDone) {
-  const done = () => { if (onDone) { try { onDone(); } catch (e) { /* ignore */ } } };
-  if (state.muted || !text || !('speechSynthesis' in window)) {
-    if (onDone) setTimeout(done, 1200);
-    return;
-  }
+function speak(text) {
+  if (!text || !('speechSynthesis' in window)) return;
   try {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(String(text).replace(/[*_#]/g, ''));
     u.rate = 0.92; u.pitch = 1.2; u.volume = 1;
-    if (onDone) { u.onend = done; u.onerror = done; }
     window.speechSynthesis.speak(u);
-  } catch (e) { done(); /* speech is a nice-to-have, never fatal */ }
+  } catch (e) { /* speech is a nice-to-have, never fatal */ }
 }
 function hushSpeech() {
   try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
@@ -326,7 +318,6 @@ function hushSpeech() {
 
 let audioCtx = null;
 function blip(freq, dur = 0.12, type = 'sine', gain = 0.06) {
-  if (state.muted) return;
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -343,19 +334,11 @@ const sfxPick = () => blip(720, 0.1, 'sine', 0.05);
 const sfxNope = () => { blip(300, 0.1, 'triangle', 0.05); setTimeout(() => blip(230, 0.14, 'triangle', 0.04), 90); };
 const sfxWin = () => { [660, 830, 990].forEach((f, i) => setTimeout(() => blip(f, 0.16, 'sine', 0.05), i * 90)); };
 
-function syncMuteButton() {
-  const b = $('btn-mute');
-  b.textContent = state.muted ? '🔇' : '🔊';
-  b.classList.toggle('off', state.muted);
-  b.title = state.muted ? 'Read-aloud is OFF — click to turn on' : 'Read-aloud is ON — click to mute';
-}
-$('btn-mute').addEventListener('click', () => {
-  state.muted = !state.muted;
-  localStorage.setItem('dq-muted', state.muted ? '1' : '0');
-  if (state.muted) hushSpeech();
-  syncMuteButton();
+$('btn-story-read').addEventListener('click', () => {
+  const t = $('story-text');
+  if (t) speak(t.textContent);
 });
-$('btn-replay').addEventListener('click', () => readChallengeAloud());
+$('btn-question-read').addEventListener('click', () => readChallengeAloud());
 
 function readChallengeAloud() {
   const c = state.challenge;
@@ -2033,10 +2016,9 @@ function nudgeWalk() {
 }
 
 /* The question is revealed as soon as the beat opens — it is the KEY, not
-   the reward. */
+   the reward. Read-aloud is on demand now, via the 🔊 button beside it. */
 function revealQuestion() {
   showQuestionBox(true);
-  readChallengeAloud();
   const c = state.challenge || {};
   if (c.question_type === 'free_response') focusTypein();
 }
@@ -2130,23 +2112,14 @@ async function startGame(topic) {
     resizeStage();
     applyChallenge(data.challenge, data.stats);
     if (!running) { running = true; requestAnimationFrame(loop); }
-    // The quest opening sets the scene, then the first chapter takes over
-    // the ribbon. Both are read aloud; neither covers the question. The
-    // chapter line only takes over once the opening has actually finished
-    // being read — a real completion signal, not a guessed delay, so the
-    // scroll never turns the page on its own before anything's happened.
+    // The quest opening sets the scene and the first chapter narrows it
+    // down to this beat; both land on the scroll together, under the
+    // chapter's own title, rather than the chapter line taking over on
+    // some later timer.
     if (data.opening) {
       const firstIntro = firstStr(field(field(data.challenge, 'beat'), 'intro'));
-      if (firstIntro) {
-        const issued = data.challenge;
-        showNarration(data.opening, questTitle() || 'Your quest', () => {
-          if (state.challenge === issued) {
-            showNarration(firstIntro, field(field(issued, 'beat'), 'title') || 'Chapter 1');
-          }
-        });
-      } else {
-        showNarration(data.opening, questTitle() || 'Your quest');
-      }
+      const badge = field(field(data.challenge, 'beat'), 'title') || questTitle() || 'Your quest';
+      showNarration(firstIntro ? `${data.opening} ${firstIntro}` : data.opening, badge);
     }
   } catch (err) {
     // Sessions live in server memory, so a restart (or a long-idle tab)
@@ -2435,15 +2408,12 @@ function setTimeOfDay(t) {
    the stage — so it can never cover the art, and every new line makes
    the scroll unroll again.
 
-   Every call site already fires off a real event — a beat/chapter
-   changing after an answer, an obstacle clearing, the quest finishing —
-   so the scroll only turns the page when something actually happened.
-   `onSpoken`, when passed, fires once this line has finished being read
-   aloud — used to chain a second line off the first actually finishing,
-   instead of guessing how long that takes. */
-function showNarration(text, badge, onSpoken) {
+   Read-aloud is on demand now — the 🔊 button beside the text speaks
+   whatever is currently shown, so this only ever updates what's written,
+   never what's spoken. */
+function showNarration(text, badge) {
   const txt = String(text == null ? '' : text).trim();
-  if (!txt) { if (typeof onSpoken === 'function') onSpoken(); return; }
+  if (!txt) return;
   const scroll = $('story-scroll');
   const body = $('story-text');
   const eyebrow = $('story-eyebrow');
@@ -2456,7 +2426,6 @@ function showNarration(text, badge, onSpoken) {
     void scroll.offsetWidth;                 // restart the unroll
     scroll.classList.add('fresh');
   }
-  speak(txt, typeof onSpoken === 'function' ? onSpoken : undefined);
 }
 
 function updateStats(stats) {
@@ -4980,7 +4949,6 @@ applyBrand();
 initCanvas();
 initDestination();
 loadTopics();
-syncMuteButton();
 resizeStage();
 seedAmbient();
 heroLook = describeHero();

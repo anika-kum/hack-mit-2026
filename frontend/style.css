@@ -114,6 +114,7 @@ body{
 .btn-soft{background:var(--moss-soft)}
 .btn-ghost{background:var(--paper);box-shadow:0 3px 0 rgba(120,80,45,.20)}
 .btn-tiny{padding:8px 14px;font-size:14px}
+.icon-btn{flex-shrink:0;padding:6px 10px;font-size:15px;line-height:1}
 
 /* ── title ───────────────────────────────────────────────────────── */
 #screen-title.active{display:flex;align-items:center;justify-content:center}
@@ -522,8 +523,6 @@ kbd{background:var(--paper);border-radius:6px;padding:2px 7px;font-family:inheri
 .toast.good{background:var(--moss-soft);border-color:var(--moss)}
 .toast.bad{background:var(--clay-soft);border-color:var(--clay)}
 .toast small{display:block;font-size:14px;font-weight:500;color:var(--ink-soft);margin-top:7px}
-
-#btn-mute.off{background:#EADFCE;color:var(--ink-soft);opacity:.75}
 
 /* ── the page turn — still here, now across the whole stage ───────── */
 .page-turn{position:absolute;inset:0;pointer-events:none;overflow:hidden;

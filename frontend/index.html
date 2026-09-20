@@ -145,8 +145,6 @@
           <span class="chip reward-chip" id="hud-reward" title="Draw an accessory for your character"
                 hidden>🎁 <b id="hud-reward-text">0/5</b></span>
         </div>
-        <button class="btn btn-ghost btn-tiny" id="btn-replay" title="Read it again">🔁 Read</button>
-        <button class="btn btn-ghost btn-tiny" id="btn-mute" title="Turn read-aloud on or off">🔊</button>
         <button class="btn btn-soft btn-tiny" id="btn-skip">Skip ↻</button>
       </div>
 
@@ -194,6 +192,8 @@
       <div class="question-box" id="question-box" hidden>
         <div class="question-head">
           <span class="question-eyebrow" id="question-eyebrow">Your question</span>
+          <button class="btn btn-ghost btn-tiny icon-btn" id="btn-question-read"
+                  type="button" title="Read the question aloud">🔊</button>
           <span class="problem-progress" id="problem-progress" hidden>0 of 0 ⭐</span>
         </div>
         <p class="question-text" id="problem-text">…</p>
@@ -319,6 +319,8 @@
       <div class="scroll-head">
         <span class="story-avatar" id="story-avatar">🦊</span>
         <span class="story-eyebrow" id="story-eyebrow">Chapter 1</span>
+        <button class="btn btn-ghost btn-tiny icon-btn" id="btn-story-read"
+                type="button" title="Read the story aloud">🔊</button>
       </div>
       <p id="story-text">Loading your adventure…</p>
     </div>
