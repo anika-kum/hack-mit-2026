@@ -205,7 +205,11 @@ def health():
         "ok": True,
         "ai_enabled": prompts.ai_available(),
         "vision_model": prompts.VISION_MODEL,
+        "text_model": prompts.TEXT_MODEL,
         "image_model": prompts.IMAGE_MODEL,
+        # Which provider is actually painting. Images moved to Meta Muse
+        # 2026-09-19; text, vision and question rewriting stayed on OpenAI.
+        "image_provider": "meta-muse" if prompts.using_muse() else "openai",
         "last_error": prompts.LAST_ERROR,
         "max_frames": MAX_FRAMES,
         "frame_every_beats": FRAME_EVERY_BEATS,
