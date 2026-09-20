@@ -719,7 +719,26 @@ def _issue_beat(session: dict) -> dict | None:
     )
     if challenge is None:
         return None
-    challenge["narrative"] = prompts.narrate_challenge(challenge, session["interpretation"])
+
+    # ★ Say the SAME SUM in the language of the scene the child is looking at.
+    # math_engine still owns every number and the answer key; prompts.py
+    # re-words the question and REJECTS its own rewrite unless the numbers
+    # are provably identical and the answer is not given away. A rejected or
+    # unavailable rewrite leaves the deterministic prompt in place, which is
+    # exactly what happens with no API key.
+    if challenge.get("question_type") != "interlude":
+        try:
+            styled = prompts.restyle_challenge(
+                challenge, session["interpretation"],
+                obstacle=challenge.get("obstacle"),
+                treasure=(quest or {}).get("treasure", ""),
+                beat_intro=(challenge.get("beat") or {}).get("intro", ""),
+            )
+            challenge["prompt"] = styled.get("prompt") or challenge["prompt"]
+            challenge["narrative"] = styled.get("narrative") or challenge["narrative"]
+            challenge["prompt_restyled"] = bool(styled.get("restyled"))
+        except Exception as exc:          # never costs the child their beat
+            prompts.note_error(exc)
     session["challenge"] = challenge
 
     public = _public_challenge(challenge)

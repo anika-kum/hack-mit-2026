@@ -222,6 +222,41 @@
         </div>
       </div>
     </div>
+
+    <!-- ════ THE ACCESSORY STUDIO ════
+         Earned every 5 correct answers. A small canvas with the same paint
+         tools as the create screen; whatever the child draws goes ON their
+         character for the rest of the session, and they stack up. Skippable,
+         and it never blocks the quest. -->
+    <div class="studio" id="studio" hidden>
+      <div class="studio-card">
+        <div class="studio-head">
+          <span class="studio-eyebrow" id="studio-eyebrow">You earned a reward!</span>
+          <h3 class="studio-title" id="studio-title">Draw something for Mochi</h3>
+        </div>
+
+        <div class="studio-slots" id="studio-slots" role="radiogroup"
+             aria-label="Where does it go?"></div>
+
+        <div class="studio-stage">
+          <canvas id="studio-canvas" width="420" height="300"></canvas>
+          <div class="studio-tools">
+            <div class="swatches" id="studio-swatches"></div>
+            <label class="size-wrap">Size
+              <input type="range" id="studio-size" min="3" max="34" value="10">
+            </label>
+            <button class="btn btn-tiny" id="studio-eraser" title="Eraser">🩹</button>
+            <button class="btn btn-tiny" id="studio-undo" title="Undo">↶</button>
+            <button class="btn btn-tiny" id="studio-clear" title="Clear">🗑️</button>
+          </div>
+        </div>
+
+        <div class="studio-foot">
+          <button class="btn btn-ghost" id="studio-skip" type="button">Maybe later</button>
+          <button class="btn btn-big" id="studio-done" type="button">Put it on! ✨</button>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 

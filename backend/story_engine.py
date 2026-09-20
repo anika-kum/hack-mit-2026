@@ -1023,6 +1023,7 @@ def assign_obstacles(beats: list[dict], rng: random.Random,
         climax["obstacle"] = reserved
 
     previous = None
+    used = {reserved} if reserved else set()
     for i, beat in enumerate(beats):
         if beat is climax:
             previous = beat["obstacle"]
@@ -1037,11 +1038,16 @@ def assign_obstacles(beats: list[dict], rng: random.Random,
         # obstacle early - but never at the cost of having nothing to pick.
         choices = [k for k in pool if k != previous and k != reserved]
         choices = choices or [k for k in pool if k != previous] or list(pool)
-        # nearest drama to the target; ties broken by the seeded rng, so the
-        # same quest always plays the same obstacles.
-        pick = min(choices, key=lambda k: (abs(OBSTACLES[k]["drama"] - target),
-                                           rng.random()))
+        # Strongly prefer something the child has NOT met yet. Without this
+        # a river quest used stepping stones three times, because stones are
+        # the only drama-1 obstacle water offers - and "still only moving
+        # across grey stones" is exactly what the playtest said.
+        fresh = [k for k in choices if k not in used]
+        pick = min(fresh or choices,
+                   key=lambda k: (abs(OBSTACLES[k]["drama"] - target),
+                                  rng.random()))
         beat["obstacle"] = pick
+        used.add(pick)
         previous = pick
 
     # The no-repeat rule is the one a child actually notices. Enforce it once

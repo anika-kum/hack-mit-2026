@@ -3287,6 +3287,10 @@ async function submitAnswer(typed) {
       setTimeout(() => showNarration(outro, data.is_final_beat ? 'At last' : 'And then…'), 700);
     }
 
+    // Every 5 cumulative correct answers, the child has earned something to
+    // draw. Queued, not shown now: maybeOpenStudio waits for the crossing.
+    try { maybeOpenStudio(data.accessory); } catch (e) { /* ignore */ }
+
     /* ★ THE PAYOFF ★ — the answer unlocks the crossing, and the child now
        performs it. A wrong answer still opens the way (the quest never dead
        ends, and the level adapts downward instead) — it just arrives with a
@@ -4808,6 +4812,12 @@ function drawHero() {
     });
   }
 
+  // ★ Everything they have earned, worn on top of whoever is drawn ★
+  try {
+    drawWorn(cx, groundY + bounce * 0.6, spr ? spr.h : creatureH * 1.15,
+             spr ? spr.w : creatureH * 0.9);
+  } catch (e) { /* an accessory is never worth a crash */ }
+
   const name = state.interpretation && state.interpretation.character_name;
   if (name) {
     // A little painted name ribbon, sitting above whoever is actually
@@ -4921,3 +4931,271 @@ syncMuteButton();
 resizeStage();
 seedAmbient();
 heroLook = describeHero();
+
+/* ═══════════ 20. ★ THE ACCESSORY STUDIO ★ ═══════════
+
+   "every 5 problems u get right, you should be able to go and add an
+    accessory to the character, like draw one (backpack, hat, sunglasses,
+    earrings, necklace, feather boa, tie, etc)!!! and the kid would draw it
+    on a small screen."
+
+   The loop: 5 cumulative correct answers -> a small canvas -> the child
+   draws -> their character WEARS it for the rest of the session, and they
+   stack up.
+
+   The single most important decision here: the child's OWN STROKES go on
+   the character immediately, painted on the canvas every frame. That means
+     * the reward lands the instant they press "Put it on", not 10s later;
+     * it works with no API key at all;
+     * a failed image edit costs nothing, because there was never a gap.
+   The AI-edited sprite is a POLISH PASS that crossfades in if it arrives.
+*/
+
+const studio = {
+  open: false,
+  slot: 'hat',
+  strokes: 0,
+  pending: null,      // the offer we are currently showing
+  poll: null,
+};
+
+/* Everything the character is wearing: the child's raw drawing plus where
+   it goes. Painted over the hero in drawHero's wake, every frame. */
+const worn = [];
+
+const SLOT_LABELS = {
+  hat: '🎩 On the head',
+  face: '🕶️ Over the eyes',
+  neck: '📿 Round the neck',
+  back: '🎒 On the back',
+  hand: '✋ In a hand',
+  body: '👕 On the body',
+};
+
+/* Where each slot sits, as a fraction of the DRAWN character's box, and how
+   big the accessory should be relative to it. Tuned so a hat lands on the
+   head rather than floating above it. */
+const SLOT_ANCHOR = {
+  hat:  { x: 0.50, y: 0.04, w: 0.72 },
+  face: { x: 0.50, y: 0.30, w: 0.60 },
+  neck: { x: 0.50, y: 0.55, w: 0.52 },
+  back: { x: 0.26, y: 0.52, w: 0.52 },
+  hand: { x: 0.84, y: 0.62, w: 0.40 },
+  body: { x: 0.50, y: 0.62, w: 0.62 },
+};
+
+let sc = null, sctx = null;          // the studio canvas
+const sBrush = { color: PALETTE[0], size: 10, erasing: false, drawing: false };
+let sUndo = [];
+
+function studioInit() {
+  if (sc) return;
+  sc = $('studio-canvas');
+  if (!sc) return;
+  sctx = sc.getContext('2d');
+  sctx.lineCap = sctx.lineJoin = 'round';
+  studioClear();
+
+  PALETTE.forEach((color, i) => {
+    const sw = document.createElement('div');
+    sw.className = 'swatch' + (i === 0 ? ' sel' : '');
+    sw.style.background = color;
+    sw.addEventListener('click', () => {
+      sBrush.color = color;
+      sBrush.erasing = false;
+      $('studio-eraser').classList.remove('rec');
+      $('studio-swatches').querySelectorAll('.swatch')
+        .forEach((s) => s.classList.remove('sel'));
+      sw.classList.add('sel');
+    });
+    $('studio-swatches').appendChild(sw);
+  });
+
+  const at = (e) => {
+    const r = sc.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (sc.width / r.width),
+             y: (e.clientY - r.top) * (sc.height / r.height) };
+  };
+  sc.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    sc.setPointerCapture(e.pointerId);
+    sUndo.push(sctx.getImageData(0, 0, sc.width, sc.height));
+    if (sUndo.length > 25) sUndo.shift();
+    sBrush.drawing = true;
+    const p = at(e);
+    sctx.beginPath();
+    sctx.moveTo(p.x, p.y);
+    sctx.lineTo(p.x + 0.01, p.y);
+    strokeStudio();
+  });
+  sc.addEventListener('pointermove', (e) => {
+    if (!sBrush.drawing) return;
+    const p = at(e);
+    sctx.lineTo(p.x, p.y);
+    strokeStudio();
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) =>
+    sc.addEventListener(ev, () => { sBrush.drawing = false; }));
+
+  $('studio-size').addEventListener('input', (e) => {
+    sBrush.size = Number(e.target.value) || 10;
+  });
+  $('studio-eraser').addEventListener('click', () => {
+    sBrush.erasing = !sBrush.erasing;
+    $('studio-eraser').classList.toggle('rec', sBrush.erasing);
+  });
+  $('studio-undo').addEventListener('click', () => {
+    const prev = sUndo.pop();
+    if (prev) { sctx.putImageData(prev, 0, 0); studio.strokes = Math.max(0, studio.strokes - 1); }
+  });
+  $('studio-clear').addEventListener('click', studioClear);
+  $('studio-skip').addEventListener('click', () => studioFinish(true));
+  $('studio-done').addEventListener('click', () => studioFinish(false));
+}
+
+function strokeStudio() {
+  // Erasing has to cut a real hole, not paint white - see studioClear().
+  sctx.globalCompositeOperation = sBrush.erasing ? 'destination-out' : 'source-over';
+  sctx.strokeStyle = sBrush.erasing ? 'rgba(0,0,0,1)' : sBrush.color;
+  sctx.lineWidth = sBrush.erasing ? sBrush.size * 1.8 : sBrush.size;
+  sctx.stroke();
+  sctx.globalCompositeOperation = 'source-over';
+  studio.strokes++;
+}
+
+/* The canvas stays TRANSPARENT - the white the child sees is the CSS
+   background. Filling it with white would paste a white rectangle across
+   their character when the drawing is composited onto the sprite. */
+function studioClear() {
+  if (!sctx) return;
+  sctx.clearRect(0, 0, sc.width, sc.height);
+  sUndo = [];
+  studio.strokes = 0;
+}
+
+function renderStudioSlots() {
+  const row = $('studio-slots');
+  if (!row) return;
+  row.innerHTML = '';
+  Object.keys(SLOT_LABELS).forEach((slot) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(slot === studio.slot));
+    b.textContent = SLOT_LABELS[slot];
+    b.addEventListener('click', () => { studio.slot = slot; renderStudioSlots(); });
+    row.appendChild(b);
+  });
+}
+
+/* Offered when the server says one is due. Never interrupts a crossing. */
+function maybeOpenStudio(offer) {
+  if (!offer || !offer.due || studio.open) return;
+  studio.pending = offer;
+  // Wait for the crossing to finish - a modal over a live jump is cruel.
+  const when = () => {
+    if (obState.active) { setTimeout(when, 450); return; }
+    openStudio(offer);
+  };
+  setTimeout(when, 500);
+}
+
+function openStudio(offer) {
+  studioInit();
+  if (!sc) return;
+  studio.open = true;
+  studio.slot = 'hat';
+  studioClear();
+  renderStudioSlots();
+  const name = (state.interpretation && state.interpretation.character_name) || 'your hero';
+  const eyebrow = $('studio-eyebrow');
+  if (eyebrow) {
+    eyebrow.textContent = `${num(offer.claimed, 0) + 1} of ${num(offer.max, 6)} · ${num(offer.correct_total, 0)} right!`;
+  }
+  const title = $('studio-title');
+  if (title) title.textContent = `Draw something for ${name}!`;
+  const el = $('studio');
+  if (el) el.hidden = false;
+  hushSpeech();
+  speak(`You earned a reward! Draw something for ${name}.`);
+  sfxWin();
+}
+
+function closeStudio() {
+  studio.open = false;
+  studio.pending = null;
+  const el = $('studio');
+  if (el) el.hidden = true;
+}
+
+async function studioFinish(skipped) {
+  const drew = studio.strokes > 0;
+  const slot = studio.slot;
+  const dataUrl = (!skipped && drew && sc) ? sc.toDataURL('image/png') : null;
+  closeStudio();
+
+  if (skipped || !dataUrl) {
+    try {
+      await postJSON(['/api/accessory'],
+                     { session_id: state.sessionId, skipped: true });
+    } catch (e) { /* skipping must never fail loudly */ }
+    return;
+  }
+
+  /* ★ The reward lands NOW. ★ The child's own strokes go on the character
+     immediately - before any network call - so the feature is real with no
+     API key, and a failed edit later costs nothing. */
+  const img = new Image();
+  img.onload = () => { worn.push({ img, slot }); };
+  img.src = dataUrl;
+  showToast('Looking good! ✨', 'Your drawing is on them now.', 'good');
+
+  try {
+    const res = await postJSON(['/api/accessory'], {
+      session_id: state.sessionId, image_data_url: dataUrl, slot, skipped: false,
+    });
+    if (res && res.rendering) pollAccessory();
+  } catch (e) { /* the child already has their accessory; say nothing */ }
+}
+
+/* The AI-edited sprite, if it arrives. Pure polish - the child is already
+   wearing their drawing, so a failure here is invisible by construction. */
+function pollAccessory() {
+  clearTimeout(studio.poll);
+  let tries = 0;
+  const tick = async () => {
+    tries++;
+    if (tries > 30) return;
+    try {
+      const r = await fetch(`${API}/api/accessory/${state.sessionId}`);
+      const d = await r.json();
+      if (d && d.status === 'ready' && d.sprite) {
+        adoptSprite(d.sprite);
+        // The painted sprite now HAS the accessory, so drop the overlay we
+        // were drawing ourselves - otherwise the child wears it twice.
+        worn.length = 0;
+        return;
+      }
+      if (d && d.status === 'failed') return;
+    } catch (e) { /* keep trying quietly */ }
+    studio.poll = setTimeout(tick, 1200);
+  };
+  studio.poll = setTimeout(tick, 1400);
+}
+
+/* Paint everything the character is wearing, anchored to the DRAWN sprite
+   box rather than the collision box. Called from drawHero. */
+function drawWorn(cx, groundY, drawnH, drawnW) {
+  if (!worn.length) return;
+  worn.forEach((acc) => {
+    if (!imgReady(acc.img)) return;
+    const a = SLOT_ANCHOR[acc.slot] || SLOT_ANCHOR.hat;
+    const w = drawnW * a.w;
+    const h = w * (acc.img.naturalHeight / Math.max(1, acc.img.naturalWidth));
+    const x = cx - drawnW / 2 + drawnW * a.x - w / 2;
+    const y = groundY - drawnH + drawnH * a.y - h / 2;
+    gctx.save();
+    try { gctx.drawImage(acc.img, x, y, w, h); } catch (e) { /* ignore */ }
+    gctx.restore();
+  });
+}

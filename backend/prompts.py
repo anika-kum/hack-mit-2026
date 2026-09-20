@@ -884,3 +884,139 @@ def generate_accessorised_sprite(interpretation: dict,
     except Exception as exc:
         note_error(exc)
         return None
+
+
+# ===================================================== STORY-FRAMED QUESTIONS
+#
+# "have the questions be part of the story (in order to get past the gate the
+#  cat must pay 2 dimes and 2 quarters, how much is that)"
+# "the questions are not story relevant (use the open ai api to generate those
+#  questions with your story!!)"
+#
+# math_engine generates "2 x 12 = ?" and owns the answer key. This asks the
+# model to say the SAME SUM in the language of the scene the child is looking
+# at - "Bun Bun needs 2 bundles of 12 rods to pay the gate. How many rods?"
+#
+# THE MODEL NEVER COMPUTES ANYTHING, and that is enforced rather than hoped
+# for. `_verify_restyle` rejects the rewrite outright unless:
+#   * it contains EXACTLY the same multiset of numbers as the original;
+#   * it does not contain the answer (unless the original already did);
+#   * it still asks a question, in <= 14 words, with no placeholders.
+# A rejected rewrite costs nothing - the deterministic prompt is used, which
+# is what happens anyway with no API key.
+
+# A story-framed question legitimately needs a few more words than a bare
+# sum ('2 x 12 = ?' is 5 words; naming the scene costs about ten more).
+# The question box is full-width, so 16 still fits on one line.
+RESTYLE_MAX_WORDS = 16
+
+_RESTYLE_SYSTEM = """You rewrite a maths question so it belongs to the story a child is playing.
+
+You are given: the scene, the character, the obstacle in their way, and a MATHS QUESTION.
+Rewrite the question so it is about that scene and that obstacle.
+
+ABSOLUTE RULES - breaking any one of them makes your answer useless and it is thrown away:
+1. NUMBERS: use exactly the numbers in the original, every one of them, and no others. Copy them digit for digit. Never add a number (not even "1" or "each"), never drop one, never change one. Do not write any number as a word.
+2. NEVER state, compute or hint at the answer.
+3. LENGTH: 16 words MAXIMUM, including the question. Count them. Shorter is better. Do not name the character if you are close to the limit.
+4. End with "?" and make it answerable with one number.
+5. Plain words a child can read. No curly braces, no quotes, no markdown, no units the original did not use.
+
+GOOD (original "2 x 12 = ?", scene: a gate, collecting rods):
+  The gate wants 2 bundles of 12 rods. How many rods?
+GOOD (original "4 pennies and 2 nickels. How many cents?"):
+  Pay the gate 4 pennies and 2 nickels. How many cents?
+BAD - added a number: The gate wants 2 bundles of 12 rods each. How many 1 total?
+BAD - gave the answer: The gate wants 24 rods, which is 2 bundles of 12.
+BAD - too long: Bun Bun the brave little bunny needs to tie together 2 whole bundles of 12 rods to pay the gate-keeper. How many rods is that?
+
+Return ONLY the rewritten question."""
+
+
+def _nums(text: str) -> list:
+    """Every number in a string, as a sorted multiset of strings."""
+    return sorted(re.findall(r"\d+(?:\.\d+)?", text or ""))
+
+
+def _verify_restyle(original: str, rewrite: str, answer) -> str | None:
+    """Return the rewrite only if it is provably the same question."""
+    text = " ".join(str(rewrite or "").split()).strip().strip('"“”')
+    if not text or "{" in text or "}" in text:
+        return None
+    if len(text.split()) > RESTYLE_MAX_WORDS:
+        return None
+    if "?" not in text:
+        return None
+    if _nums(text) != _nums(original):
+        return None
+    # The answer must not have been handed over. Only checked when the answer
+    # is not already one of the numbers in the question (it sometimes is, e.g.
+    # "which is bigger: 32 or 74?").
+    if answer is not None:
+        try:
+            shown = _nums(original)
+            for form in (f"{float(answer):g}", str(int(round(float(answer))))):
+                if form not in shown and form in _nums(text):
+                    return None
+        except (TypeError, ValueError):
+            pass
+    return text
+
+
+def restyle_challenge(challenge: dict, interpretation: dict,
+                      obstacle: dict | None = None,
+                      treasure: str = "", beat_intro: str = "") -> dict:
+    """Say the same sum in the language of the scene. Never changes the maths.
+
+    Returns {"prompt": str, "narrative": str}. Both fall back to what
+    math_engine already produced, so this is safe to call unconditionally.
+    """
+    original = challenge.get("prompt") or ""
+    out = {"prompt": original,
+           "narrative": challenge.get("narrative") or original}
+    client = get_client()
+    if client is None or not original:
+        return out
+
+    char = challenge.get("character_name", "our hero")
+    setting = (interpretation or {}).get("setting", "a meadow")
+    ob = obstacle or {}
+    scene = (
+        f"Character: {char}\n"
+        f"World: {setting}\n"
+        f"What the quest is about collecting: {treasure or 'supplies'}\n"
+        f"The obstacle in their way right now: {ob.get('title') or 'the way ahead'}"
+        f" - {ob.get('locked_text') or 'it blocks the path'}\n"
+        f"What just happened: {beat_intro or ''}\n"
+        f"MATHS QUESTION (rewrite this): {original}"
+    )
+    messages = [{"role": "system", "content": _RESTYLE_SYSTEM},
+                {"role": "user", "content": scene}]
+    # Up to two goes. Most rejections are one fixable slip - a stray "each",
+    # three words over - and telling the model exactly what it broke fixes it
+    # far more often than not. The second call only happens when the first
+    # was going to be thrown away anyway.
+    for attempt in range(2):
+        try:
+            resp = chat(client, model=TEXT_MODEL, messages=messages,
+                        max_completion_tokens=200)
+            candidate = (resp.choices[0].message.content or "").strip()
+        except Exception as exc:
+            note_error(exc)
+            return out
+
+        good = _verify_restyle(original, candidate, challenge.get("answer_value"))
+        if good:
+            out["prompt"] = good
+            out["restyled"] = True
+            return out
+        if attempt == 0:
+            messages += [
+                {"role": "assistant", "content": candidate},
+                {"role": "user", "content": (
+                    f"Rejected. It must contain exactly these numbers and no "
+                    f"others: {', '.join(_nums(original)) or 'none'}. It must be "
+                    f"{RESTYLE_MAX_WORDS} words or fewer and end with '?'. "
+                    f"Try again, shorter.")},
+            ]
+    return out
