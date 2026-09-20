@@ -11,10 +11,12 @@ Then plays a full quest end-to-end through the real HTTP routes.
 
 import json
 import random
+import re as _re
 import sys
 
 import app as app_module
 import math_engine
+import prompts
 import question_bank
 import story_engine
 from app import _grade, _public_challenge
@@ -361,7 +363,6 @@ for topic in math_engine.TOPICS:
 # --- 4. the easiest 9-10 question is harder than the hardest 4-6 one -----
 # Compared on the magnitude of the numbers actually generated, for the one
 # topic both bands share a concept in (addition).
-import re as _re
 import statistics as _stats
 
 
@@ -456,6 +457,102 @@ for topic in math_engine.TOPICS:
                   f"{topic}/{band}: deleted archetype {arche} is registered")
             check(math_engine.ARCHETYPE_CONCEPT.get(arche),
                   f"{topic}/{band}: {arche} has no concept, so nothing gates it")
+
+
+# ============================================================================
+# PART 1c - THE MATHS AND THE STORY ARE ABOUT THE SAME THING
+#
+#   "if the story is about collecting rods, make it such that bun bun the
+#    main bunny is getting rods and doing multiplication - the context is
+#    the same"
+#
+# The noun is chosen by the story (or, with no API key, by the world the
+# child drew). The NUMBERS and the ANSWER KEY are still generated in Python -
+# that is the line this feature must not cross, so it is asserted here.
+# ============================================================================
+
+print("\n" + "=" * 72)
+print("PART 1c - word problems speak the quest's own noun")
+print("=" * 72)
+
+STORY_ARCHETYPES = [a for a in math_engine.ARCHETYPE_CONCEPT if a.endswith("_story")]
+check(len(STORY_ARCHETYPES) >= 4,
+      f"only {len(STORY_ARCHETYPES)} word-problem archetypes exist")
+
+for arche in STORY_ARCHETYPES:
+    topic = math_engine.ARCHETYPE_TOPIC[arche]
+    for band in math_engine.TOPIC_BANDS[topic]:
+        if arche not in math_engine.archetypes_for(topic, band):
+            continue
+        for level in range(1, 6):
+            plain = math_engine.generate_challenge(
+                topic, band, level, "Bun Bun", ["bunny", "forest"],
+                archetype=arche, seed=level * 13)
+            themed = math_engine.generate_challenge(
+                topic, band, level, "Bun Bun", ["bunny", "forest"],
+                archetype=arche, story_noun="rods", seed=level * 13)
+            tag = f"{topic}/{band}/L{level}/{arche}"
+            check("rods" in themed["prompt"],
+                  f"{tag}: the quest is about rods but the question is "
+                  f"{themed['prompt']!r}")
+            # THE LINE: the story may change the WORDS, never the MATHS.
+            check(themed["explanation"] == plain["explanation"],
+                  f"{tag}: the story noun changed the arithmetic "
+                  f"({themed['explanation']!r} vs {plain['explanation']!r})")
+            nums = lambda p: sorted(int(n) for n in _re.findall(r"\d+", p))
+            check(nums(themed["prompt"]) == nums(plain["prompt"]),
+                  f"{tag}: the story noun changed the numbers")
+            check(len(themed["prompt"].split()) <= MAX_PROMPT_WORDS,
+                  f"{tag}: themed prompt is too long: {themed['prompt']!r}")
+
+# The whole quest speaks ONE noun, end to end, finale included.
+_story = {"title": "The Rod Run", "goal_text": "the old mill",
+          "opening": "x", "epilogue": "y", "treasure": "rods",
+          "source": "openai",
+          "beats": [{"title": "T", "location": "L", "intro": "i",
+                     "on_success": "s", "advances": "a"} for _ in range(9)]}
+_q = story_engine.start_quest(
+    "multiplication", "45",
+    {"objects": ["bunny", "forest"], "character_name": "Bun Bun"},
+    seed=9, storyline=_story)
+check(_q["treasure"] == "rods", f'the quest lost its noun: {_q["treasure"]!r}')
+check(_q["treasure_source"] == "story", "the story's noun was not used")
+themed_prompts = []
+for _i in range(len(_q["beats"])):
+    _ch = story_engine.issue_beat(_q, session_level=3, seed=200 + _i)
+    if _ch is None:
+        break
+    if _ch["question_type"] != "interlude":
+        themed_prompts.append(_ch["prompt"])
+        story_engine.record_result(_q, _ch, True)
+    story_engine.advance(_q)
+check(any("rods" in p for p in themed_prompts),
+      f"no question in a quest about rods mentioned rods: {themed_prompts}")
+print(f'  a quest about "rods" asked: '
+      + "; ".join(p for p in themed_prompts if "rods" in p)[:150])
+
+# With NO storyline the noun still comes from the child's own world, so the
+# offline game is themed too.
+_off = story_engine.start_quest(
+    "addition", "23", {"objects": ["fox", "river"], "character_name": "Rusty"},
+    seed=4)
+check(_off["treasure"], "an offline quest has no noun at all")
+check(_off["treasure_source"] == "world",
+      "an offline quest claimed its noun came from a story")
+print(f'  offline, a river world is about "{_off["treasure"]}"')
+
+# And the sanitiser refuses anything that is not a countable plural, so a
+# model cannot hand us "treasure" or a sentence.
+for bad in ("treasure", "rod", "points", "", None, "a very long phrase here",
+            "things", "12 rods"):
+    check(not prompts.clean_treasure(bad),
+          f"clean_treasure accepted {bad!r}")
+for good in ("rods", "Moonstones", "lantern-oil jars"):
+    check(prompts.clean_treasure(good), f"clean_treasure rejected {good!r}")
+# Trailing punctuation is noise, not a rejection reason.
+check(prompts.clean_treasure("rods!!") == "rods",
+      "clean_treasure did not strip stray punctuation")
+print("  clean_treasure accepts plain countable plurals and nothing else")
 
 
 # --------------------------------------------------------- k1 no-reading

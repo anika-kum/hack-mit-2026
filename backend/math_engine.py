@@ -266,6 +266,49 @@ def _scale(level: int, lo: float, hi: float) -> int:
 _CTX = threading.local()
 
 
+def story_noun(default: str = "berries") -> str:
+    """The noun THIS quest is about, e.g. "rods".
+
+    "if the story is about collecting rods, make it such that bun bun the
+     main bunny is getting rods and doing multiplication - the context is
+     the same"
+
+    Word problems are written about this noun so the maths and the story are
+    about the same thing. It is WORDING ONLY: every number and the answer key
+    are still generated right here. story_engine parks it on `_CTX` alongside
+    the topic; with no quest running the caller's default is used, which is
+    what keeps the sweep in test_engine deterministic.
+    """
+    noun = getattr(_CTX, "noun", None)
+    return noun if isinstance(noun, str) and noun.strip() else default
+
+
+def story_char(default: str = "our hero") -> str:
+    name = getattr(_CTX, "char", None)
+    return name if isinstance(name, str) and name.strip() else default
+
+
+def story_toll(default: str = "") -> str:
+    """The obstacle's short imperative, e.g. "Pay the gate".
+
+    "Have the questions be part of the story (in order to get past the gate
+     the cat must pay 2 dimes and 2 quarters, how much is that)"
+
+    Used to frame a word problem around the thing actually blocking the way,
+    so the sum IS the toll rather than a puzzle that happens to be nearby.
+    """
+    toll = getattr(_CTX, "toll", None)
+    return toll if isinstance(toll, str) and toll.strip() else default
+
+
+def _framed(lead: str, tail: str, limit: int = 12) -> str:
+    """`lead: tail`, but only while it still fits the 12-word prompt budget."""
+    if not lead:
+        return tail
+    joined = f"{lead}: {tail}"
+    return joined if len(joined.split()) <= limit else tail
+
+
 def _cal(lo: int, hi: int) -> tuple[int, int]:
     """Nudge a hard-coded operand range toward the real question bank."""
     if question_bank is None:
@@ -775,8 +818,9 @@ def _k_add_2(level, band, rng, char, setting):
         while a + b > 13 and a > 1:
             a -= 1
     total = a + b
+    noun = story_noun("berries")
     return _q(f"{a} + {b} = ?", f"{a} + {b} = {total}.", total,
-              story=f"{a} red berries and {b} blue berries. How many?",
+              story=_framed(story_toll(), f"{a} {noun} and {b} more. How many?"),
               spread=max(2, total // 7 + 2),
               props=[_prop("basket", 0.30, 0.36, 1.1, str(a)),
                      _prop("basket", 0.70, 0.36, 1.1, str(b))],
@@ -789,7 +833,8 @@ def _k_add_3(level, band, rng, char, setting):
     a, b, c = (rng.randint(lo, hi) for _ in range(3))
     total = a + b + c
     return _q(f"{a} + {b} + {c} = ?", f"{a} + {b} + {c} = {total}.", total,
-              story=f"Three sacks hold {a}, {b} and {c} gems. How many?",
+              story=_framed(story_toll(),
+                            f"Sacks of {a}, {b} and {c} {story_noun('gems')}. Total?"),
               spread=max(3, total // 7 + 2),
               props=[_prop("sack", 0.26, 0.36, 1.0, str(a)),
                      _prop("sack", 0.50, 0.36, 1.0, str(b)),
@@ -820,8 +865,9 @@ def _k_sub_2(level, band, rng, char, setting):
     a = rng.randint(lo, hi)
     b = rng.randint(max(1, int(a * 0.25)), max(1, a - 1))
     left = a - b
+    noun = story_noun("lanterns")
     return _q(f"{a} - {b} = ?", f"{a} - {b} = {left}.", left,
-              story=f"{a} lanterns. {b} blew out. How many still glow?",
+              story=_framed(story_toll(), f"{a} {noun}, {b} lost. How many left?"),
               spread=max(2, left // 6 + 2),
               props=[_prop("lantern", 0.32, 0.34, 1.2, str(a)),
                      _prop("lantern", 0.68, 0.34, 1.2, f"-{b}")],
@@ -859,7 +905,7 @@ def _k_coin_total(level, band, rng, char, setting):
     props = []
     for i, (k, n) in enumerate(counts.items()):
         props += _cluster("gem", n, 0.26 + i * 0.22, 0.34, k, 0.7, cols=3)
-    return _q(f"{_coin_phrase(counts)}. How many cents?",
+    return _q(_framed(story_toll(), f"{_coin_phrase(counts)}. How many cents?"),
               " + ".join(f"{n} x {_COIN_VALUE[k]}" for k, n in counts.items())
               + f" = {total} cents.",
               total, spread=max(3, total // 4 + 2), unit="c", props=props,
@@ -877,7 +923,7 @@ def _k_money_add_cents(level, band, rng, char, setting):
         while a + b > 14 and b > 1:
             b -= 1
     total = a + b
-    return _q(f"You have {a} cents and find {b} more. Total?",
+    return _q(_framed(story_toll(), f"{a} cents and {b} more. How many cents?"),
               f"{a} + {b} = {total} cents.", total,
               spread=max(2, total // 5 + 2), unit="c",
               props=[_prop("sack", 0.30, 0.38, 1.1, f"{a}c"),
@@ -903,8 +949,9 @@ def _k_mul_2(level, band, rng, char, setting):
     a = rng.randint(*_span(_rs(band, level, 3, 600)))
     b = rng.randint(*_span(_rs(band, level, 2, 70), 0.5))
     total = a * b
+    noun = story_noun("apples")
     return _q(f"{a} x {b} = ?", f"{a} x {b} = {total}.", total,
-              story=f"{a} baskets hold {b} apples each. How many apples?",
+              story=_framed(story_toll(), f"{a} bundles of {b} {noun}. How many?"),
               spread=max(3, total // 7 + 2),
               props=_cluster("basket", min(a, 8), 0.5, 0.33, str(b), 0.85,
                              cols=4, step_x=0.075),
@@ -917,7 +964,8 @@ def _k_div_exact(level, band, rng, char, setting):
     q = rng.randint(*_span(min(140, _rs(band, level, 3, 95))))
     a = b * q
     return _q(f"{a} / {b} = ?", f"{a} / {b} = {q}.", q,
-              story=f"{a} apples shared into {b} baskets. How many each?",
+              story=_framed(story_toll(),
+                            f"{a} {story_noun('apples')} into {b} equal shares. Each?"),
               spread=max(2, q // 5 + 2),
               props=[_prop("signpost", 0.5, 0.30, 1.4, f"{a}/{b}")],
               narr=f"The whole haul has to be split evenly before {char} can "
@@ -1807,7 +1855,7 @@ def _divisor_split(total: int, d: int) -> tuple[int, int]:
 
 
 def generate_finale(topic, band, level, carried, character_name=None,
-                    objects=None, seed=None):
+                    objects=None, seed=None, story_noun=None):
     """The last challenge of a quest, computed from the child's own haul."""
     items = _carried_items(carried)
     if not items or sum(v for _, v in items) < 2:
@@ -1819,6 +1867,10 @@ def generate_finale(topic, band, level, carried, character_name=None,
     char = character_name or guess_character_name(objects or [])
     setting = pick_setting(objects or [])
     level = _lvl(level)
+    # The finale quotes the child's own haul back at them, so it speaks in
+    # the quest's noun like every other question does.
+    prev_noun = getattr(_CTX, "noun", None)
+    _CTX.noun = story_noun
 
     if band == "k1":
         # Ages 4-6 answer with countable pips, so every number in the finale -
@@ -1827,9 +1879,20 @@ def generate_finale(topic, band, level, carried, character_name=None,
         # the arithmetic still agree with each other.
         items = [(k, min(v, 3)) for k, v in items][:2]
 
-    a_name, a = items[0]
+    # The haul is kept in four generic slots (berries / planks / lanterns /
+    # gems). The child never heard those words - they heard the quest's own
+    # noun - so the BIGGEST slot is renamed to it. The others keep their own
+    # names, because "3 rods and 2 rods" is not a question.
+    display = {}
+    if story_noun:
+        display[items[0][0]] = story_noun
+
+    def _name(slot):
+        return display.get(slot, slot)
+
+    a_name, a = _name(items[0][0]), items[0][1]
     if len(items) > 1:
-        b_name, b = items[1]
+        b_name, b = _name(items[1][0]), items[1][1]
         pair = f"{a} {a_name} and {b} {b_name}"
     else:
         # Only one kind carried: "3 berries and 1 berries" is a bug a child
@@ -1837,7 +1900,7 @@ def generate_finale(topic, band, level, carried, character_name=None,
         b_name, b = a_name, max(1, a // 2)
         pair = f"{a} {a_name} and {b} more"
     total = sum(v for _, v in items)
-    haul = ", ".join(f"{v} {k}" for k, v in items)
+    haul = ", ".join(f"{v} {_name(k)}" for k, v in items)
 
     lead = (f"Everything {char} gathered on the way here comes down to this "
             f"one last gate: {haul}.")
@@ -1916,6 +1979,7 @@ def generate_finale(topic, band, level, carried, character_name=None,
     ch["props"] = [_prop("gate", 0.5, 0.30, 1.6, "final"),
                    _prop("lantern", 0.18, 0.40, 1.2, "last light"),
                    _prop("lantern", 0.82, 0.40, 1.2, "last light")]
+    _CTX.noun = prev_noun
     ch["is_finale"] = True
     ch["finale_haul"] = dict((k, v) for k, v in items)
     ch["topic"] = topic
@@ -1964,7 +2028,8 @@ def _add_navigation_obstacles(challenge: dict, rng: random.Random, count: int) -
 
 def generate_challenge(topic, band, level, character_name=None, objects=None,
                        mistakes_total=0, seed=None, archetype=None,
-                       nav_obstacles=None, exclude_archetypes=()):
+                       nav_obstacles=None, exclude_archetypes=(),
+                       story_noun=None, story_toll=None):
     """Build one fully-specified challenge.
 
     `archetype` asks for a specific mechanic (story_engine uses this so a beat
@@ -2003,12 +2068,15 @@ def generate_challenge(topic, band, level, character_name=None, objects=None,
     # which rungs this topic spans. Always cleared, even on error: a leaked
     # context would calibrate the NEXT challenge against the wrong topic.
     prev = (getattr(_CTX, "topic", None), getattr(_CTX, "band", None),
-            getattr(_CTX, "level", None))
+            getattr(_CTX, "level", None), getattr(_CTX, "noun", None),
+            getattr(_CTX, "char", None), getattr(_CTX, "toll", None))
     _CTX.topic, _CTX.band, _CTX.level = topic, band, level
+    _CTX.noun, _CTX.char, _CTX.toll = story_noun, char, story_toll
     try:
         challenge = chosen[1](level, band, rng, char, setting)
     finally:
-        _CTX.topic, _CTX.band, _CTX.level = prev
+        (_CTX.topic, _CTX.band, _CTX.level, _CTX.noun, _CTX.char,
+         _CTX.toll) = prev
 
     if nav_obstacles is None:
         nav_obstacles = min(int(mistakes_total or 0), 5)
@@ -2018,6 +2086,8 @@ def generate_challenge(topic, band, level, character_name=None, objects=None,
     challenge["band"] = band
     challenge["level"] = level
     challenge["concept"] = ARCHETYPE_CONCEPT.get(challenge.get("archetype"), "")
+    challenge["story_noun"] = story_noun or ""
+    challenge["story_toll"] = story_toll or ""
     challenge["difficulty_rung"] = difficulty_rung(band, level)
     challenge["character_name"] = char
     challenge["setting"] = setting

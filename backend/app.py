@@ -128,6 +128,18 @@ STORYLINE_MAX_BLOCK_S = float(os.getenv("DQ_STORYLINE_MAX_BLOCK_S", "18"))
 # How long a frame render will wait for the frame it is seeded from.
 FRAME_SEED_WAIT_S = float(os.getenv("DQ_FRAME_SEED_WAIT_S", "40"))
 
+# ------------------------------------------------------------ accessories
+# "every 5 problems u get right, you should be able to go and add an
+#  accessory to the character, like draw one!!!"
+#
+# Every ACCESSORY_EVERY CUMULATIVE correct answers - not per quest, so a
+# child who restarts does not lose their progress toward the next one - the
+# child is offered a small canvas and draws something their character then
+# wears for the rest of the session. MAX_ACCESSORIES caps the cost and the
+# sprite drift the same way MAX_FRAMES caps the journey art.
+ACCESSORY_EVERY = int(os.getenv("DQ_ACCESSORY_EVERY", "5"))
+MAX_ACCESSORIES = int(os.getenv("DQ_MAX_ACCESSORIES", "6"))
+
 # Background work: image frames, sprites and storyline prefetch. One session
 # occupies at most three workers, one of which may be parked waiting for the
 # frame it continues from - so keep enough headroom that a handful of
@@ -167,6 +179,17 @@ class AnswerRequest(BaseModel):
 
 class NextChallengeRequest(BaseModel):
     session_id: str
+
+
+class AccessoryRequest(BaseModel):
+    session_id: str
+    # The child's own drawing, exactly as they drew it. The browser paints
+    # this on the character IMMEDIATELY - the reward must land instantly and
+    # must work with no API key at all - and the edited sprite, if the AI is
+    # up, swaps in when it is ready.
+    image_data_url: str | None = None
+    slot: str = "hat"
+    skipped: bool = False
 
 
 # ------------------------------------------------------------------ routes
@@ -461,6 +484,17 @@ def create_world(req: CreateWorldRequest):
         "frames_enabled": bool(req.generate_images),
         "storyline_future": None,
         "storyline": None,
+        # --- accessories -------------------------------------------------
+        # `sprite_original` is the sprite as FIRST generated and is never
+        # overwritten: every accessory edit is applied to it with the full
+        # cumulative list, which is what stops the character drifting away
+        # from itself after three or four edits.
+        "sprite_original": None,
+        "correct_total": 0,
+        "accessories": [],
+        "accessory_status": "idle",   # idle | drawing | rendering | ready | failed
+        "accessory_lock": threading.Lock(),
+        "accessory_sprite_seq": 0,
     }
     SESSIONS[session_id] = session
 
@@ -493,6 +527,7 @@ def create_world(req: CreateWorldRequest):
         session["background"] = frame0["image"]
         try:
             session["character_sprite"] = sprite_job.result(timeout=90)
+            session["sprite_original"] = session["character_sprite"]
         except Exception as exc:  # a missing sprite must not kill world creation
             prompts.note_error(exc)
 
@@ -915,6 +950,7 @@ def answer(req: AnswerRequest):
 
     session["answered"] += 1
     if was_correct:
+        session["correct_total"] += 1
         session["consecutive_correct"] += 1
         session["consecutive_wrong"] = 0
         session["streak"] += 1
@@ -987,7 +1023,137 @@ def answer(req: AnswerRequest):
         "quest": story_engine.summary(quest) if quest else None,
         "is_final_beat": is_final,
         "stats": _stats(session),
+        "accessory": _accessory_offer(session),
         **(_journey(quest) if quest else {}),
+    }
+
+
+# ============================================================= ACCESSORIES
+#
+# The loop: 5 cumulative correct answers -> the child draws something ->
+# their character wears it for the rest of the session, and they accumulate.
+#
+# THREE THINGS THIS MUST NEVER DO, in order of how badly they would hurt:
+#   1. block gameplay. The edit takes ~10s; the quest carries on regardless
+#      and the sprite swaps in whenever it lands.
+#   2. fail visibly. Any error keeps the sprite the child already had and
+#      says nothing - a six-year-old must never meet a stack trace.
+#   3. vanish with no API key. The browser paints the child's OWN strokes on
+#      the character the instant they finish drawing, so the reward is real
+#      offline; the AI version is a polish pass on top, not the feature.
+
+
+def _accessories_earned(session: dict) -> int:
+    """How many accessories this child has unlocked so far, ever."""
+    if ACCESSORY_EVERY <= 0:
+        return 0
+    return min(session["correct_total"] // ACCESSORY_EVERY, MAX_ACCESSORIES)
+
+
+def _accessory_offer(session: dict) -> dict:
+    """Is one due right now, and how far off is the next one?"""
+    earned = _accessories_earned(session)
+    claimed = len(session["accessories"])
+    due = earned > claimed and session["accessory_status"] != "rendering"
+    to_go = 0
+    if claimed < MAX_ACCESSORIES and ACCESSORY_EVERY > 0:
+        to_go = max(0, (claimed + 1) * ACCESSORY_EVERY - session["correct_total"])
+    return {
+        "due": bool(due),
+        "index": claimed + 1,
+        "earned": earned,
+        "claimed": claimed,
+        "max": MAX_ACCESSORIES,
+        "every": ACCESSORY_EVERY,
+        "correct_total": session["correct_total"],
+        "to_go": to_go,
+        "slots": list(prompts.ACCESSORY_SLOTS.keys()),
+        "status": session["accessory_status"],
+    }
+
+
+def _render_accessory(session: dict, accessory: dict) -> None:
+    """Background: describe the doodle, then put it on the character.
+
+    Always edits the ORIGINAL sprite with the FULL cumulative accessory list.
+    Chaining edit-on-edit drifts the character away from itself after three
+    or four goes; re-editing the original costs exactly the same and keeps
+    the child's character recognisably theirs. See prompts.py.
+    """
+    try:
+        desc = prompts.describe_accessory(accessory.get("image_data_url"),
+                                          accessory.get("slot"))
+        accessory["description"] = desc or accessory.get("slot") or "an accessory"
+        sprite = prompts.generate_accessorised_sprite(
+            session["interpretation"], session.get("sprite_original"),
+            session["accessories"])
+        if sprite:
+            session["character_sprite"] = sprite
+            session["accessory_sprite_seq"] += 1
+            session["accessory_status"] = "ready"
+        else:
+            # Keep whatever sprite the child already had. The browser is
+            # still drawing their own strokes on top, so they lose nothing.
+            session["accessory_status"] = "failed"
+    except Exception as exc:                    # never reaches the child
+        prompts.note_error(exc)
+        session["accessory_status"] = "failed"
+
+
+@app.post("/api/accessory")
+def add_accessory(req: AccessoryRequest):
+    """Claim an earned accessory. Returns IMMEDIATELY - never blocks play."""
+    session = _get_session(req.session_id)
+
+    if req.skipped:
+        # A child who does not want to draw keeps playing and is offered the
+        # next one at the next milestone. Nothing is recorded.
+        return {"ok": True, "skipped": True, "accessory": _accessory_offer(session)}
+
+    if _accessories_earned(session) <= len(session["accessories"]):
+        raise HTTPException(400, "No accessory has been earned yet.")
+    if len(session["accessories"]) >= MAX_ACCESSORIES:
+        raise HTTPException(400, "That is every accessory for this session.")
+    if not req.image_data_url:
+        raise HTTPException(400, "Draw something first.")
+
+    slot = req.slot if req.slot in prompts.ACCESSORY_SLOTS else prompts.DEFAULT_ACCESSORY_SLOT
+    accessory = {
+        "index": len(session["accessories"]) + 1,
+        "slot": slot,
+        "image_data_url": req.image_data_url,
+        "description": None,
+    }
+    with session["accessory_lock"]:
+        session["accessories"].append(accessory)
+        session["accessory_status"] = "rendering" if prompts.ai_available() else "offline"
+
+    if prompts.ai_available() and session.get("sprite_original"):
+        _POOL.submit(_render_accessory, session, accessory)
+
+    return {
+        "ok": True,
+        "skipped": False,
+        # The browser already has the strokes and is already drawing them.
+        # This is only "is a nicer version coming?".
+        "rendering": session["accessory_status"] == "rendering",
+        "accessory": _accessory_offer(session),
+    }
+
+
+@app.get("/api/accessory/{session_id}")
+def get_accessory(session_id: str):
+    """Poll for the accessorised sprite. `sprite` is null until it is ready."""
+    session = _get_session(session_id)
+    ready = session["accessory_status"] == "ready"
+    return {
+        "status": session["accessory_status"],
+        "seq": session["accessory_sprite_seq"],
+        "sprite": session["character_sprite"] if ready else None,
+        "worn": [{"index": a["index"], "slot": a["slot"],
+                  "description": a.get("description")}
+                 for a in session["accessories"]],
+        "accessory": _accessory_offer(session),
     }
 
 

@@ -245,6 +245,7 @@ Respond with ONLY valid JSON, no markdown fences:
 {
   "title": "the quest title, 2-6 words, no character name needed",
   "goal_text": "the destination as a short phrase the child can read on a progress bar, e.g. 'the top of Cloud Mountain'",
+  "treasure": "ONE plural noun for the thing this quest is about collecting or carrying, 1-2 words, lower case, concrete and countable, e.g. 'rods', 'moonstones', 'acorns', 'lantern-oil jars'. The MATH QUESTIONS will be written about this exact noun, so it must be something you can have four of.",
   "opening": "2 sentences that set up the journey and name the destination, warm and exciting",
   "epilogue": "2 sentences for arriving, past tense, celebrating. May end with {haul}.",
   "beats": [
@@ -265,6 +266,7 @@ RULES
 - In "on_success" for a stop whose role mentions GATHER, you may also write "{gain} {subject}" - it becomes e.g. "7 berries". Use it at most once.
 - "epilogue" may use {char} and {haul}. Nothing else.
 - Never write any other curly-brace token. Never use the character's literal name.
+- "treasure" must be a plain countable plural. Not a place, not an abstraction, not a person.
 - Never mention, state or hint at any number the child has to work out. No math in the prose.
 - Simple words, short sentences, warm and brave. No scary violence, no death, no failure framing.
 - The LAST beat must arrive at the destination and must feel like a guaranteed, gentle win.
@@ -384,9 +386,45 @@ def generate_storyline(interpretation: dict, band: str, destination: str,
         "goal_text": sanitize_story_text(data.get("goal_text")) or destination,
         "opening": sanitize_story_text(data.get("opening")),
         "epilogue": sanitize_story_text(data.get("epilogue")),
+        # The noun the quest is ABOUT. math_engine writes its word problems
+        # around this, so a quest about collecting rods asks about rods.
+        "treasure": clean_treasure(data.get("treasure")),
         "beats": out_beats,
         "source": "openai",
     }
+
+
+# --------------------------------------------------- the quest's own noun
+#
+# "if the story is about collecting rods, make it such that bun bun the main
+#  bunny is getting rods and doing multiplication - the context is the same"
+#
+# The model names the thing the quest is about; math_engine writes its word
+# problems around that noun. The NUMBERS and the ANSWER KEY never leave
+# Python - this is wording only, which is why it is safe to let a model pick
+# it. A noun that is not a plain countable plural is rejected outright.
+
+_TREASURE_BAD = {
+    "treasure", "treasures", "things", "stuff", "items", "objects", "points",
+    "friends", "people", "children", "memories", "adventures", "dreams",
+}
+
+
+def clean_treasure(raw) -> str:
+    """Normalise the model's noun, or "" if it is unusable."""
+    text = " ".join(str(raw or "").lower().split())
+    text = text.strip(" .!,'\"")
+    if not text or len(text) > 24:
+        return ""
+    if len(text.split()) > 2:
+        return ""
+    if not all(c.isalpha() or c in "- " for c in text):
+        return ""
+    if text in _TREASURE_BAD:
+        return ""
+    if not text.endswith("s"):                 # must be countable and plural
+        return ""
+    return text
 
 
 # ------------------------------------------------------------- world images
@@ -716,3 +754,133 @@ _ENCOURAGE = [
 def feedback_line(was_correct: bool, character_name: str) -> str:
     pool = _CHEERS if was_correct else _ENCOURAGE
     return random.choice(pool).format(char=character_name)
+
+
+# ============================================================= ACCESSORIES
+#
+# "every 5 problems u get right, you should be able to go and add an accessory
+#  to the character, like draw one (backpack, hat, sunglasses, earrings,
+#  necklace, feather boa, tie, etc)!!! and the kid would draw it on a small
+#  screen."
+#
+# The child draws the thing; vision turns their doodle into a short phrase;
+# images.edit puts it ON the character. Two decisions worth knowing about:
+#
+# ALWAYS EDIT FROM THE ORIGINAL SPRITE, never from the last edited one.
+#   Chaining edit-on-edit drifts: by the third accessory the character has
+#   quietly changed colour and lost its face. Editing the ORIGINAL every time
+#   with the full cumulative list ("wearing a red pointy hat and round
+#   sunglasses") keeps the child's character recognisably theirs however many
+#   accessories they earn. Cost is identical - one edit either way.
+#
+# NOTHING HERE IS ALLOWED TO BLOCK A CHILD.
+#   Every entry point returns None on any failure, the caller keeps the
+#   sprite it already had, and the frontend has already drawn the child's own
+#   strokes on the character anyway - so the reward lands instantly and the
+#   polished version swaps in ~10s later if it arrives at all.
+
+# Where an accessory sits, so the offline path can anchor the doodle and the
+# prompt can be specific. The child picks one; the value is a short id only.
+ACCESSORY_SLOTS = {
+    "hat": "on top of the head",
+    "face": "over the eyes",
+    "neck": "around the neck",
+    "back": "worn on the back",
+    "hand": "held in one hand",
+    "body": "worn on the body",
+}
+DEFAULT_ACCESSORY_SLOT = "hat"
+
+_ACCESSORY_VISION = (
+    "A child has drawn a single accessory for their character. In 12 words or "
+    "fewer, describe ONLY the object: what it is, its colours and any pattern. "
+    "Examples: 'a red pointy wizard hat with yellow stars', 'round blue "
+    "sunglasses', 'a green stripy backpack'. If you cannot tell what it is, "
+    "describe its shape and colours instead. Return the phrase only - no "
+    "sentence, no quotes, no mention of the character."
+)
+
+
+def describe_accessory(image_data_url: str | None, slot: str = "") -> str | None:
+    """A child's accessory doodle -> a short phrase. None if AI is unavailable."""
+    client = get_client()
+    if client is None or not image_data_url:
+        return None
+    where = ACCESSORY_SLOTS.get(slot or "", "")
+    try:
+        resp = chat(
+            client,
+            model=VISION_MODEL,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text",
+                     "text": _ACCESSORY_VISION + (f" It is worn {where}." if where else "")},
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ],
+            }],
+            max_completion_tokens=60,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        text = " ".join(text.replace("\n", " ").split())[:90].strip(' ."\'')
+        return text or None
+    except Exception as exc:
+        note_error(exc)
+        return None
+
+
+def _accessory_prompt(interpretation: dict, accessories: list[dict]) -> str:
+    """One prompt describing the character wearing EVERY accessory so far."""
+    who = (interpretation or {}).get("main_character") or "the character"
+    bits = []
+    for acc in accessories or []:
+        desc = (acc or {}).get("description") or ""
+        where = ACCESSORY_SLOTS.get((acc or {}).get("slot") or "", "")
+        if desc:
+            bits.append(f"{desc} {where}".strip())
+    worn = "; ".join(bits) if bits else "a small accessory"
+    return (
+        f"The SAME {who} from this image, completely unchanged - identical "
+        f"pose, proportions, colours, face and art style - now wearing: {worn}. "
+        f"Add ONLY the accessories; do not redraw, restyle or replace the "
+        f"character, and do not change its expression. Keep it a clean cutout "
+        f"on a fully transparent background with no scene, no ground, no "
+        f"shadow and no border."
+    )
+
+
+def generate_accessorised_sprite(interpretation: dict,
+                                 original_sprite: str | None,
+                                 accessories: list[dict]) -> str | None:
+    """The child's character wearing everything it has earned. None on failure.
+
+    `original_sprite` is the sprite as first generated, NOT the last
+    accessorised one - see the note at the top of this section. `accessories`
+    is the full cumulative list, so nothing earned ever gets dropped.
+    """
+    client = get_client()
+    if client is None or not original_sprite or not accessories:
+        return None
+    base = _data_url_to_file(original_sprite)
+    if base is None:
+        return None
+    base.name = "character.png"
+    try:
+        resp = client.images.edit(
+            model=IMAGE_MODEL,
+            image=base,
+            prompt=_accessory_prompt(interpretation, accessories),
+            size="1024x1024",
+            quality=IMAGE_QUALITY,
+            background="transparent",
+            output_format="png",
+            n=1,
+        )
+        item = resp.data[0]
+        b64 = getattr(item, "b64_json", None)
+        if b64:
+            return f"data:image/png;base64,{b64}"
+        return getattr(item, "url", None)
+    except Exception as exc:
+        note_error(exc)
+        return None

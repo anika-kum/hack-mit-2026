@@ -707,6 +707,7 @@ INTERLUDE_PROSE = {
 OBSTACLES = {
     # ---------------------------------------------------------- WATER
     "stones": {
+        "toll": "Pay the stone-keeper",
         "terrain": ("water",), "action": "hop", "drama": 1, "visual": "stones",
         "title": "The Stepping Stones", "noun": "stepping stone",
         "blocked": "Fast water, and a line of flat stones across it. {char} "
@@ -717,6 +718,7 @@ OBSTACLES = {
         "keys": ["←", "↑", "↓", "→"], "steps": 4,
     },
     "ford": {
+        "toll": "Pay the ferry-keeper",
         "terrain": ("water",), "action": "ford", "drama": 2, "visual": "water",
         "title": "The Rushing Ford", "noun": "step",
         "blocked": "Shallow enough to wade, and quick enough to take {char}'s "
@@ -726,6 +728,7 @@ OBSTACLES = {
         "keys": ["→"], "steps": 5,
     },
     "boat": {
+        "toll": "Pay for the boat",
         "terrain": ("water",), "action": "pole", "drama": 3, "visual": "boat",
         "title": "The Little Boat", "noun": "push",
         "blocked": "Too deep to wade and too wide to jump - but there is a "
@@ -736,6 +739,7 @@ OBSTACLES = {
         "keys": ["SPACE", "→"], "steps": 4,
     },
     "log_cross": {
+        "toll": "Pay the log-toll",
         "terrain": ("water", "wood"), "action": "balance", "drama": 2,
         "visual": "logcross", "title": "The Fallen Log", "noun": "step",
         "blocked": "One old trunk lies right across the water, slick with "
@@ -746,6 +750,7 @@ OBSTACLES = {
         "keys": ["→", "↑", "↓"], "steps": 4,
     },
     "bridge": {
+        "toll": "Pay for the planks",
         "terrain": ("water", "height"), "action": "rebuild", "drama": 3,
         "visual": "bridge", "title": "The Collapsed Bridge", "noun": "plank",
         "blocked": "The bridge is a row of empty posts and a long drop. The "
@@ -757,6 +762,7 @@ OBSTACLES = {
     },
     # --------------------------------------------------------- HEIGHT
     "ledges": {
+        "toll": "Pay for the climbing rope",
         "terrain": ("height", "coast", "cave"), "action": "climb", "drama": 3,
         "visual": "ledges", "title": "The Cliff Ledges", "noun": "ledge",
         "blocked": "The cliff goes up and up. There are ledges - narrow ones, "
@@ -767,6 +773,7 @@ OBSTACLES = {
         "keys": ["↑"], "steps": 4,
     },
     "rope_bridge": {
+        "toll": "Pay the bridge-keeper",
         "terrain": ("height",), "action": "cross", "drama": 4,
         "visual": "ropebridge", "title": "The Swaying Rope Bridge",
         "noun": "board",
@@ -778,6 +785,7 @@ OBSTACLES = {
         "keys": ["→", "↑", "↓"], "steps": 5,
     },
     "chasm": {
+        "toll": "Pay the leap-toll",
         "terrain": ("height", "arid"), "action": "leap", "drama": 5,
         "visual": "gap", "title": "The Chasm", "noun": "leap",
         "blocked": "The ground simply stops. A chasm, wider than {char} is "
@@ -789,6 +797,7 @@ OBSTACLES = {
     },
     # ----------------------------------------------------------- WOOD
     "hurdle": {
+        "toll": "Pay the woodcutter",
         "terrain": ("wood", "open"), "action": "hurdle", "drama": 2,
         "visual": "logs", "title": "The Fallen Logs", "noun": "log",
         "blocked": "Storm-felled trunks lie across the path, one after "
@@ -798,6 +807,7 @@ OBSTACLES = {
         "keys": ["→", "SPACE"], "steps": 3,
     },
     "branches": {
+        "toll": "Pay the branch-toll",
         "terrain": ("wood",), "action": "duck", "drama": 2, "visual": "branches",
         "title": "The Low Branches", "noun": "branch",
         "blocked": "The way on is a tunnel of branches, every one of them at "
@@ -808,6 +818,7 @@ OBSTACLES = {
         "keys": ["↓", "→"], "steps": 4,
     },
     "vine": {
+        "toll": "Pay for the vine",
         "terrain": ("wood",), "action": "swing", "drama": 4, "visual": "vine",
         "title": "The Hanging Vine", "noun": "swing",
         "blocked": "A single vine hangs over the gap, swinging gently, well "
@@ -819,6 +830,7 @@ OBSTACLES = {
     },
     # ---------------------------------------------------------- COAST
     "tide_pool": {
+        "toll": "Pay the tide-keeper",
         "terrain": ("coast",), "action": "wade", "drama": 2, "visual": "water",
         "title": "The Tide Pool", "noun": "step",
         "blocked": "A wide cold pool left behind by the tide, full of things "
@@ -828,6 +840,7 @@ OBSTACLES = {
         "keys": ["←", "↑", "↓", "→"], "steps": 4,
     },
     "sea_rocks": {
+        "toll": "Pay the rock-pilot",
         "terrain": ("coast",), "action": "scramble", "drama": 3,
         "visual": "rocks", "title": "The Black Rocks", "noun": "rock",
         "blocked": "Great wet slabs of rock, tilted every way, with the sea "
@@ -838,6 +851,7 @@ OBSTACLES = {
     },
     # ----------------------------------------------------------- ARID
     "dunes": {
+        "toll": "Pay the sand-guide",
         "terrain": ("arid",), "action": "trudge", "drama": 2, "visual": "dunes",
         "title": "The Dunes", "noun": "dune",
         "blocked": "Sand, and then more sand, heaped into ridges that slide "
@@ -849,6 +863,7 @@ OBSTACLES = {
     },
     # ----------------------------------------------------------- CAVE
     "squeeze": {
+        "toll": "Pay the cave-toll",
         "terrain": ("cave",), "action": "squeeze", "drama": 2,
         "visual": "squeeze", "title": "The Narrow Gap", "noun": "squeeze",
         "blocked": "The passage pinches down to a crack you could post a "
@@ -858,6 +873,7 @@ OBSTACLES = {
         "keys": ["→", "↓"], "steps": 4,
     },
     "under_stream": {
+        "toll": "Pay the water-toll",
         "terrain": ("cave",), "action": "wade", "drama": 3,
         "visual": "water", "title": "The Underground Stream", "noun": "step",
         "blocked": "Black water runs across the cave floor, and there is no "
@@ -869,6 +885,7 @@ OBSTACLES = {
     },
     # ----------------------------------------------------------- OPEN
     "gate": {
+        "toll": "Pay the gate",
         "terrain": ("open", "wood", "height"), "action": "unlock", "drama": 2,
         "visual": "gate", "title": "The Locked Gate", "noun": "bolt",
         "blocked": "An iron gate, taller than {char}, with three heavy bolts "
@@ -878,6 +895,7 @@ OBSTACLES = {
         "keys": ["SPACE", "→"], "steps": 3,
     },
     "hoops": {
+        "toll": "Pay the hoop-master",
         "terrain": ("open", "arid"), "action": "hoop", "drama": 3,
         "visual": "hoops", "title": "The Ring of Hoops", "noun": "hoop",
         "blocked": "Great hoops hang in a line above the path, turning "
@@ -888,6 +906,7 @@ OBSTACLES = {
         "keys": ["↑", "↓", "SPACE"], "steps": 4,
     },
     "hedge": {
+        "toll": "Pay the hedge-keeper",
         "terrain": ("open", "wood"), "action": "hurdle", "drama": 2,
         "visual": "hedge", "title": "The Thorn Hedge", "noun": "gap",
         "blocked": "A hedge twice {char}'s height, thorns the size of "
@@ -1081,6 +1100,39 @@ DESTINATION_BY_SETTING = {
     "cloud": "the floating castle high above the clouds",
 }
 DEFAULT_DESTINATION = "the golden signpost at the end of the trail"
+
+# ------------------------------------------------- the quest's own noun
+#
+# "if the story is about collecting rods, make it such that bun bun the main
+#  bunny is getting rods and doing multiplication - the context is the same"
+#
+# Every word problem in the quest is written about ONE noun, so the maths and
+# the story are about the same thing. The AI storyline names it ("treasure");
+# with no API key it comes from the world the child drew. Either way it is
+# WORDING ONLY - math_engine still owns every number and every answer.
+
+TREASURE_BY_SETTING = {
+    "river": "reeds", "lake": "river-stones", "ocean": "shells",
+    "sea": "shells", "bridge": "planks", "island": "coconuts",
+    "cliff": "climbing-pegs", "mountain": "climbing-pegs",
+    "volcano": "fire-stones", "forest": "acorns", "tree": "acorns",
+    "garden": "seeds", "cave": "crystals", "desert": "date-stones",
+    "meadow": "clover-leaves", "field": "wheat-sheaves", "road": "milestones",
+    "house": "candles", "castle": "keys", "cloud": "star-drops",
+}
+DEFAULT_TREASURE = "lanterns"
+
+
+def infer_treasure(setting: str, objects=()) -> str:
+    key = (setting or "").lower().strip()
+    if key in TREASURE_BY_SETTING:
+        return TREASURE_BY_SETTING[key]
+    for obj in objects or []:
+        low = (obj or "").lower()
+        for name, noun in TREASURE_BY_SETTING.items():
+            if name in low:
+                return noun
+    return DEFAULT_TREASURE
 
 
 def infer_destination(setting: str, objects=()) -> str:
@@ -1287,6 +1339,7 @@ def start_quest(topic: str, band: str, interpretation: dict, seed=None,
         # The model sometimes echoes the instruction back ("cross the river")
         # rather than naming the place; the same reduction fixes both paths.
         goal_text = goal_phrase(storyline.get("goal_text") or "") or goal_noun
+        treasure = (storyline.get("treasure") or "").strip()
         opening = storyline.get("opening") or (
             f"{char} is setting out for {goal_text}. It is a long way - "
             f"but every puzzle solved is a step closer.")
@@ -1300,6 +1353,7 @@ def start_quest(topic: str, band: str, interpretation: dict, seed=None,
         template_id = tpl["id"]
         title = _fmt(tpl["title"], char=char, setting=setting, Setting=setting.title())
         goal_text = goal_noun
+        treasure = ""
         opening = _fmt(tpl["opening"], char=char, setting=setting)
         epilogue_tpl = tpl["epilogue"]
         story_source = "template"
@@ -1333,6 +1387,9 @@ def start_quest(topic: str, band: str, interpretation: dict, seed=None,
         "goal_text": goal_text,
         "destination_source": "child" if (destination or "").strip() else "inferred",
         "story_source": story_source,
+        # The noun every word problem in this quest is written about.
+        "treasure": treasure or infer_treasure(setting, objects),
+        "treasure_source": "story" if treasure else "world",
         "friend": friend,
         "friend_desc": friend_desc,
         "beats": beats,
@@ -1506,6 +1563,10 @@ def obstacle_for(quest: dict, beat: dict, ctx: dict | None = None) -> dict:
         # bridge and a locked gate never can - the playtest note was "i dont
         # see the different obstacle types???".
         "visual": spec.get("visual", "stones"),
+        # A short imperative the QUESTION can be framed around, so the maths
+        # is the thing standing between the child and the crossing:
+        # "Pay the gate: 2 dimes and 2 quarters. How many cents?"
+        "toll": spec.get("toll", "Pay the toll"),
         "terrain": list(spec.get("terrain", ())),
         "drama": int(spec.get("drama", 1)),
         "title": spec.get("title", "The Crossing"),
@@ -1606,7 +1667,8 @@ def issue_beat(quest: dict, session_level: int, mistakes_total: int = 0,
             challenge = math_engine.generate_finale(
                 topic=quest["topic"], band=quest["band"], level=level,
                 carried=quest["state"], character_name=quest["char"],
-                objects=[quest["setting"]], seed=rng.randrange(1 << 30),
+                objects=[quest["setting"]], story_noun=quest.get("treasure"),
+                seed=rng.randrange(1 << 30),
             )
         if challenge is None:
             challenge = math_engine.generate_challenge(
@@ -1615,6 +1677,11 @@ def issue_beat(quest: dict, session_level: int, mistakes_total: int = 0,
                 level=level,
                 character_name=quest["char"],
                 objects=[quest["setting"]],
+                # ★ the story and the maths are about the SAME THING ★
+                story_noun=quest.get("treasure"),
+                # ...and the question is what stands between the child and
+                # the obstacle in front of them.
+                story_toll=obstacle_spec(beat.get("obstacle") or "").get("toll"),
                 archetype=archetype,
                 nav_obstacles=nav,
                 exclude_archetypes=([quest.get("last_archetype")]
@@ -1907,4 +1974,6 @@ def summary(quest: dict) -> dict:
         "complexity": quest.get("complexity", 1),
         "register": quest.get("register", "simple"),
         "interludes": quest.get("interludes", 0),
+        "treasure": quest.get("treasure", ""),
+        "treasure_source": quest.get("treasure_source", "world"),
     }
