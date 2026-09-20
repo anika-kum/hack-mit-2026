@@ -1398,6 +1398,9 @@ function unlockObstacle(outcome) {
   obState.locked = false;
   obState.active = true;
   obState.finishing = false;
+  // The answer is graded and the crossing is theirs to play: hand control
+  // back, or the action keys stay swallowed by the keydown guard.
+  state.locked = false;
   showQuestionBox(false);
   renderObstacleBand();
   sfxPick();
@@ -1544,9 +1547,15 @@ function obstacleAction(key) {
   const st = obState.stations[obState.at];
   if (!st || st.done) return false;
   if (!st.armed) {
-    // Not close enough yet. A tiny nudge forward, so a child who mashes the
-    // key still makes progress instead of feeling stuck.
+    // Not close enough yet. Nudge toward it so a child who mashes the key
+    // always makes progress - and if that nudge lands them on it, take the
+    // action immediately rather than making them press again.
     nudgeToStation(st);
+    const hx = hero.x + hero.w / 2, hy = hero.y + hero.h / 2;
+    if (Math.hypot(hx - st.x, hy - st.y) < st.r * OB_REACH + hero.w * 0.45) {
+      st.armed = true;
+      clearStation(obState.at, true);
+    }
     return true;
   }
   clearStation(obState.at, true);
@@ -2918,18 +2927,24 @@ window.addEventListener('keydown', (e) => {
   }
   keys[e.key] = true;
   if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
+
+  /* ★ THE CROSSING OWNS ITS ACTION KEY, and it is checked BEFORE the
+     state.locked guard below.
+
+     This is where SPACE used to die: submitAnswer sets state.locked = true
+     and nothing clears it until the NEXT beat arrives — but the crossing
+     opens in between, so every action key was swallowed by that guard while
+     the arrows (read straight off `keys` in update()) still worked. The
+     symptom was "the space key thing isn't working well". */
+  if (obState.active && !obState.locked) {
+    if (obstacleAction(e.key)) return;
+    if (e.key === ' ') { nudgeWalk(); return; }
+  }
+
   if (state.locked) return;
   if (e.key === 'Enter' && typeinActive()) { focusTypein(); return; }
 
-  /* ★ The crossing owns its action key while it is live. A press that is
-     mistimed or simply wrong does nothing at all — no penalty, no fail
-     state. See obstacleAction(). */
-  if (obState.active && !obState.locked && obstacleAction(e.key)) return;
-
-  if (e.key === ' ') {
-    if (obState.active) nudgeWalk();
-    else if (!typeinActive()) submitAnswer();
-  }
+  if (e.key === ' ' && !typeinActive()) submitAnswer();
 });
 window.addEventListener('keyup', (e) => { keys[e.key] = false; });
 
@@ -5088,8 +5103,25 @@ function renderStudioSlots() {
   });
 }
 
+/* The HUD pip: how close the next reward is. Without this the feature is
+   invisible until it fires, and "how do I get one?" is a fair question. */
+function renderRewardChip(offer) {
+  const chip = $('hud-reward');
+  const text = $('hud-reward-text');
+  if (!chip || !text || !offer) return;
+  const claimed = num(offer.claimed, 0);
+  const max = num(offer.max, 6);
+  if (claimed >= max) { chip.hidden = true; return; }
+  const every = Math.max(1, num(offer.every, 5));
+  const done = every - clamp(num(offer.to_go, every), 0, every);
+  text.textContent = offer.due ? 'Ready!' : `${done}/${every}`;
+  chip.hidden = false;
+  if (chip.classList) chip.classList.toggle('ready', !!offer.due);
+}
+
 /* Offered when the server says one is due. Never interrupts a crossing. */
 function maybeOpenStudio(offer) {
+  try { renderRewardChip(offer); } catch (e) { /* cosmetic */ }
   if (!offer || !offer.due || studio.open) return;
   studio.pending = offer;
   // Wait for the crossing to finish - a modal over a live jump is cruel.
